@@ -52,6 +52,13 @@ export interface DynamicsParams {
   normalize_enabled: boolean; // target raw track peak to -1.0 dBFS
 }
 
+export interface AudioDeviceInfo {
+  name: string;
+  is_default: boolean;
+  is_active: boolean;
+  is_headphone: boolean;
+}
+
 export interface PlaybackTick {
   position: number;
   azimuth: number; // in radians [0, 2*PI)
@@ -109,5 +116,11 @@ export interface TrackState {
   // Dynamics Actions
   setDynamicsParams: (params: Partial<DynamicsParams>) => Promise<void>;
   fetchDynamicsParams: () => Promise<void>;
+
+  // Audio Output Devices
+  audioDevices: AudioDeviceInfo[];
+  activeAudioDevice: string | null;
+  fetchAudioDevices: () => Promise<void>;
+  setAudioDevice: (deviceName: string) => Promise<void>;
 }
 

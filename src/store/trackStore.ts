@@ -1,6 +1,15 @@
 import { create } from 'zustand';
 import { invoke, isTauri } from '@tauri-apps/api/core';
-import type { TrackInfo, TrackState, Spatial8DParams, EqParams, ReverbParams, DynamicsParams, PlaybackTick } from '../types/audio';
+import type {
+  TrackInfo,
+  TrackState,
+  Spatial8DParams,
+  EqParams,
+  ReverbParams,
+  DynamicsParams,
+  PlaybackTick,
+  AudioDeviceInfo,
+} from '../types/audio';
 
 /**
  * Zustand store managing audio track loading, transport state, playback clock,
@@ -48,6 +57,9 @@ export const useTrackStore = create<TrackState>((set, get) => ({
     release_ms: 150.0,
     normalize_enabled: false,
   },
+
+  audioDevices: [],
+  activeAudioDevice: null,
 
   openAndLoadTrack: async () => {
     set({ error: null });
@@ -364,4 +376,40 @@ export const useTrackStore = create<TrackState>((set, get) => ({
       }
     }
   },
+
+  // Audio Output Devices
+  fetchAudioDevices: async () => {
+    if (isTauri()) {
+      try {
+        const devices = await invoke<AudioDeviceInfo[]>('get_audio_devices');
+        if (devices && devices.length > 0) {
+          const active = devices.find((d) => d.is_active)?.name ?? null;
+          set({ audioDevices: devices, activeAudioDevice: active });
+        }
+      } catch (err: unknown) {
+        console.error('Failed to fetch audio devices', err);
+      }
+    }
+  },
+
+  setAudioDevice: async (deviceName: string) => {
+    if (isTauri()) {
+      try {
+        const devices = await invoke<AudioDeviceInfo[]>('set_audio_device', { deviceName });
+        if (devices && devices.length > 0) {
+          const active = devices.find((d) => d.is_active)?.name ?? deviceName;
+          set({ audioDevices: devices, activeAudioDevice: active });
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        set({ error: `Failed to set audio output device: ${msg}` });
+      }
+    }
+  },
 }));
+
+// Automatically query active and available audio output devices on app launch
+if (isTauri()) {
+  useTrackStore.getState().fetchAudioDevices();
+}
+

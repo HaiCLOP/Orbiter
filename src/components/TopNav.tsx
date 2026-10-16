@@ -2,6 +2,7 @@ import React from 'react';
 import { Disc3, FolderOpen, Loader2 } from 'lucide-react';
 import { useTrackStore } from '../store/trackStore';
 import { useWorkspaceStore, type WorkspaceTab } from '../store/workspaceStore';
+import { AudioDeviceSelector } from './AudioDeviceSelector';
 
 export const TopNav: React.FC = () => {
   const { openAndLoadTrack, isLoading } = useTrackStore();
@@ -54,14 +55,9 @@ export const TopNav: React.FC = () => {
         })}
       </div>
 
-      {/* Right: Workspace & Load Action */}
-      <div className="flex items-center space-x-3">
-        <div className="hidden sm:flex items-center space-x-1.5 text-zinc-400 text-[11px]">
-          <span>Workspace:</span>
-          <span className="font-semibold text-zinc-200 bg-[#181d28] px-2 py-0.5 rounded border border-[#262c3a]">
-            Default
-          </span>
-        </div>
+      {/* Right: Audio Device Selector & Load Action */}
+      <div className="flex items-center space-x-2.5">
+        <AudioDeviceSelector />
 
         <button
           onClick={openAndLoadTrack}

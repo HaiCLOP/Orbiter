@@ -79,6 +79,8 @@ pub fn run() {
             commands::clear_lane,
             commands::set_lane_enabled,
             commands::load_timeline_preset,
+            commands::get_audio_devices,
+            commands::set_audio_device,
         ])
         .run(tauri::generate_context!());
 

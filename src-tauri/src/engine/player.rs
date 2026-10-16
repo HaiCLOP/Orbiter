@@ -8,7 +8,9 @@ use crate::engine::eq_stage::EqStage;
 use crate::engine::reverb::{ReverbBridge, ReverbStage};
 use crate::engine::spatial_3d::{DistanceStage, ElevationStage, Spatial3DBridge};
 use crate::engine::Panner;
-use crate::models::{AudioBuffer, DynamicsParams, EqParams, ReverbParams, Spatial8DParams};
+use crate::models::{
+    AudioBuffer, AudioDeviceInfo, DynamicsParams, EqParams, ReverbParams, Spatial8DParams,
+};
 use crate::timeline::{
     create_timeline_preset, AutomationLaneId, Keyframe, TimelineBridge, TimelineState,
 };
@@ -176,15 +178,64 @@ impl EqBridge {
 ///    on loads (audio callback) to guarantee prompt, race-free, and untorn parameter reads without locks.
 /// 3. Atomic Seek Synchronization: Seeks are communicated via `seek_target_frame` using an atomic
 ///    `swap(NO_SEEK, Ordering::AcqRel)`.
-/// 4. DSP Cascade:
-///    Input -> Resampling -> 8D Binaural Panning -> 4-Band EQ -> Master Volume -> Hardware Output.
+/// Heuristic to detect if a device name refers to headphones, earbuds, or a headset.
+pub fn is_headphone_device_name(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    lower.contains("headphone")
+        || lower.contains("buds")
+        || lower.contains("earphone")
+        || lower.contains("airpod")
+        || lower.contains("headset")
+        || lower.contains("wh-") // Sony WH-1000XM
+        || lower.contains("wf-") // Sony WF-1000XM
+        || lower.contains("iem")
+}
+
+/// Chooses the most suitable output device:
+/// 1. Auto-selects headphone/buds if present.
+/// 2. Otherwise falls back to system default output device.
+/// 3. Otherwise falls back to first available output device.
+fn select_preferred_output_device(host: &cpal::Host) -> Result<(cpal::Device, String), String> {
+    let devices: Vec<cpal::Device> = host
+        .output_devices()
+        .map_err(|e| format!("Failed to enumerate output audio devices: {e}"))?
+        .collect();
+
+    if devices.is_empty() {
+        return Err("No audio output devices found on system".to_string());
+    }
+
+    // 1. Try to find an explicit headphone / earbuds device
+    for dev in &devices {
+        if let Ok(name) = dev.name() {
+            if is_headphone_device_name(&name) {
+                log::info!("Preferred headphone device detected: {}", name);
+                return Ok((dev.clone(), name));
+            }
+        }
+    }
+
+    // 2. Fall back to default output device
+    if let Some(def_dev) = host.default_output_device() {
+        let name = def_dev.name().unwrap_or_else(|_| "Default Device".to_string());
+        log::info!("Falling back to system default output device: {}", name);
+        return Ok((def_dev, name));
+    }
+
+    // 3. Fall back to the first available output device
+    let first = devices.into_iter().next().unwrap();
+    let name = first.name().unwrap_or_else(|_| "Audio Device".to_string());
+    Ok((first, name))
+}
+
 pub struct AudioPlayer {
-    _stream: Option<StreamHandle>,
+    _stream: RwLock<Option<StreamHandle>>,
+    current_device_name: RwLock<String>,
+    device_sample_rate: AtomicU32,
     buffer_slot: Arc<RwLock<Option<Arc<AudioBuffer>>>>,
     is_playing: Arc<AtomicBool>,
     playhead_frame: Arc<AtomicUsize>,
     seek_target_frame: Arc<AtomicU64>,
-    device_sample_rate: u32,
 
     // 8D Spatial Parameters (Acquire-Release Atomic Synchronization)
     spatial_enabled: Arc<AtomicBool>,
@@ -210,24 +261,24 @@ pub struct AudioPlayer {
 }
 
 impl AudioPlayer {
-    /// Initializes the CPAL output stream on the default system audio device.
-    ///
-    /// Inputs: none
-    /// Outputs:
-    /// - `Ok(AudioPlayer)` if stream is successfully configured.
-    /// - `Err(String)` if no output device is found or stream creation fails.
-    ///
-    /// Invariants:
-    /// - Output stream is initialized in a paused state (`is_playing = false`).
-    /// - Default 8D effect is disabled, 0.25 Hz speed, 80% intensity, 0.0 distance, 0.0 elevation.
-    /// - Default Reverb is disabled, 30% amount, 50% room size, 2.0s decay RT60.
-    /// - Default EQ is neutral / bypass, master volume is 1.0 (100%).
-    pub fn new() -> Result<Self, String> {
-        let host = cpal::default_host();
-        let device = host
-            .default_output_device()
-            .ok_or_else(|| "No default audio output device available".to_string())?;
-
+    /// Creates and starts an output stream on the designated CPAL device.
+    fn create_stream_for_device(
+        device: &cpal::Device,
+        cb_buffer_slot: Arc<RwLock<Option<Arc<AudioBuffer>>>>,
+        cb_is_playing: Arc<AtomicBool>,
+        cb_playhead: Arc<AtomicUsize>,
+        cb_seek: Arc<AtomicU64>,
+        cb_spatial_enabled: Arc<AtomicBool>,
+        cb_rotation_speed: Arc<AtomicU32>,
+        cb_intensity: Arc<AtomicU32>,
+        cb_current_azimuth: Arc<AtomicU32>,
+        cb_spatial_3d_bridge: Arc<Spatial3DBridge>,
+        cb_reverb_bridge: Arc<ReverbBridge>,
+        cb_eq_bridge: Arc<EqBridge>,
+        cb_dynamics_bridge: Arc<DynamicsBridge>,
+        cb_normalize_gain: Arc<AtomicU32>,
+        cb_timeline_bridge: Arc<TimelineBridge>,
+    ) -> Result<(StreamHandle, u32), String> {
         let supported_config = device
             .default_output_config()
             .map_err(|e| format!("Failed to get default audio config: {e}"))?;
@@ -244,42 +295,8 @@ impl AudioPlayer {
 
         let config: StreamConfig = supported_config.into();
 
-        let buffer_slot = Arc::new(RwLock::new(None));
-        let is_playing = Arc::new(AtomicBool::new(false));
-        let playhead_frame = Arc::new(AtomicUsize::new(0));
-        let seek_target_frame = Arc::new(AtomicU64::new(NO_SEEK));
-
-        let spatial_enabled = Arc::new(AtomicBool::new(false));
-        let rotation_speed = Arc::new(AtomicU32::new(0.25f32.to_bits()));
-        let intensity = Arc::new(AtomicU32::new(0.8f32.to_bits()));
-        let current_azimuth = Arc::new(AtomicU32::new(0.0f32.to_bits()));
-
-        let spatial_3d_bridge = Arc::new(Spatial3DBridge::new(sample_rate as f32));
-        let reverb_bridge = Arc::new(ReverbBridge::new());
-        let eq_bridge = Arc::new(EqBridge::new(sample_rate as f32));
-        let dynamics_bridge = Arc::new(DynamicsBridge::new());
-        let normalize_gain = Arc::new(AtomicU32::new(1.0f32.to_bits()));
-        let timeline_bridge = Arc::new(TimelineBridge::new());
-
-        // Clones for real-time audio callback thread
-        let cb_buffer_slot = Arc::clone(&buffer_slot);
-        let cb_is_playing = Arc::clone(&is_playing);
-        let cb_playhead = Arc::clone(&playhead_frame);
-        let cb_seek = Arc::clone(&seek_target_frame);
-
-        let cb_spatial_enabled = Arc::clone(&spatial_enabled);
-        let cb_rotation_speed = Arc::clone(&rotation_speed);
-        let cb_intensity = Arc::clone(&intensity);
-        let cb_current_azimuth = Arc::clone(&current_azimuth);
-        let cb_spatial_3d_bridge = Arc::clone(&spatial_3d_bridge);
-        let cb_reverb_bridge = Arc::clone(&reverb_bridge);
-        let cb_eq_bridge = Arc::clone(&eq_bridge);
-        let cb_dynamics_bridge = Arc::clone(&dynamics_bridge);
-        let cb_normalize_gain = Arc::clone(&normalize_gain);
-        let cb_timeline_bridge = Arc::clone(&timeline_bridge);
-
         let dev_rate = sample_rate as f64;
-        let mut fractional_playhead: f64 = 0.0;
+        let mut fractional_playhead: f64 = cb_playhead.load(Ordering::Acquire) as f64;
         let mut panner = Panner::new(sample_rate as f32);
         let mut elevation_stage = ElevationStage::new(sample_rate as f32);
         let mut distance_stage = DistanceStage::new(sample_rate as f32);
@@ -291,7 +308,7 @@ impl AudioPlayer {
         let mut dynamics_stage = DynamicsStage::new(sample_rate as f32);
         let mut local_dynamics_version: u32 = 0;
         let mut local_timeline = {
-            let g = timeline_bridge.timeline.read().unwrap();
+            let g = cb_timeline_bridge.timeline.read().unwrap();
             Arc::clone(&*g)
         };
         let mut local_timeline_version: u32 = 1;
@@ -566,13 +583,69 @@ impl AudioPlayer {
             .play()
             .map_err(|e| format!("Failed to start output stream: {e}"))?;
 
+        Ok((StreamHandle(stream), sample_rate))
+    }
+
+    /// Initializes the CPAL output stream on the preferred system audio device (headphones prioritized).
+    pub fn new() -> Result<Self, String> {
+        let host = cpal::default_host();
+        let (device, device_name) = select_preferred_output_device(&host)?;
+
+        let supported_config = device
+            .default_output_config()
+            .map_err(|e| format!("Failed to get default audio config: {e}"))?;
+
+        let sample_rate = supported_config.sample_rate().0;
+
+        let buffer_slot = Arc::new(RwLock::new(None));
+        let is_playing = Arc::new(AtomicBool::new(false));
+        let playhead_frame = Arc::new(AtomicUsize::new(0));
+        let seek_target_frame = Arc::new(AtomicU64::new(NO_SEEK));
+
+        let spatial_enabled = Arc::new(AtomicBool::new(false));
+        let rotation_speed = Arc::new(AtomicU32::new(0.25f32.to_bits()));
+        let intensity = Arc::new(AtomicU32::new(0.8f32.to_bits()));
+        let current_azimuth = Arc::new(AtomicU32::new(0.0f32.to_bits()));
+
+        let spatial_3d_bridge = Arc::new(Spatial3DBridge::new(sample_rate as f32));
+        let reverb_bridge = Arc::new(ReverbBridge::new());
+        let eq_bridge = Arc::new(EqBridge::new(sample_rate as f32));
+        let dynamics_bridge = Arc::new(DynamicsBridge::new());
+        let normalize_gain = Arc::new(AtomicU32::new(1.0f32.to_bits()));
+        let timeline_bridge = Arc::new(TimelineBridge::new());
+
+        let (stream_handle, stream_rate) = Self::create_stream_for_device(
+            &device,
+            Arc::clone(&buffer_slot),
+            Arc::clone(&is_playing),
+            Arc::clone(&playhead_frame),
+            Arc::clone(&seek_target_frame),
+            Arc::clone(&spatial_enabled),
+            Arc::clone(&rotation_speed),
+            Arc::clone(&intensity),
+            Arc::clone(&current_azimuth),
+            Arc::clone(&spatial_3d_bridge),
+            Arc::clone(&reverb_bridge),
+            Arc::clone(&eq_bridge),
+            Arc::clone(&dynamics_bridge),
+            Arc::clone(&normalize_gain),
+            Arc::clone(&timeline_bridge),
+        )?;
+
+        log::info!(
+            "Initialized AudioPlayer on '{}' ({} Hz)",
+            device_name,
+            stream_rate
+        );
+
         Ok(Self {
-            _stream: Some(StreamHandle(stream)),
+            _stream: RwLock::new(Some(stream_handle)),
+            current_device_name: RwLock::new(device_name),
+            device_sample_rate: AtomicU32::new(stream_rate),
             buffer_slot,
             is_playing,
             playhead_frame,
             seek_target_frame,
-            device_sample_rate: sample_rate,
             spatial_enabled,
             rotation_speed,
             intensity,
@@ -584,6 +657,84 @@ impl AudioPlayer {
             normalize_gain,
             timeline_bridge,
         })
+    }
+
+    /// Returns the list of available audio output devices with active/headphone flags.
+    pub fn get_audio_devices(&self) -> Vec<AudioDeviceInfo> {
+        let host = cpal::default_host();
+        let current_name = self.current_device_name.read().unwrap().clone();
+        let default_name = host.default_output_device().and_then(|d| d.name().ok());
+
+        let mut result = Vec::new();
+        if let Ok(devices) = host.output_devices() {
+            for dev in devices {
+                if let Ok(name) = dev.name() {
+                    let is_default = default_name.as_ref().map(|d| d == &name).unwrap_or(false);
+                    let is_active = name == current_name;
+                    let is_headphone = is_headphone_device_name(&name);
+                    result.push(AudioDeviceInfo {
+                        name,
+                        is_default,
+                        is_active,
+                        is_headphone,
+                    });
+                }
+            }
+        }
+        result
+    }
+
+    /// Switches the active audio output device live during playback without losing position or state.
+    pub fn set_audio_device(&self, device_name: &str) -> Result<Vec<AudioDeviceInfo>, String> {
+        let host = cpal::default_host();
+        let devices: Vec<cpal::Device> = host
+            .output_devices()
+            .map_err(|e| format!("Failed to enumerate output devices: {e}"))?
+            .collect();
+
+        let target_device = devices
+            .into_iter()
+            .find(|d| d.name().map(|n| n == device_name).unwrap_or(false))
+            .ok_or_else(|| format!("Device '{device_name}' not found"))?;
+
+        let (new_stream, new_sample_rate) = Self::create_stream_for_device(
+            &target_device,
+            Arc::clone(&self.buffer_slot),
+            Arc::clone(&self.is_playing),
+            Arc::clone(&self.playhead_frame),
+            Arc::clone(&self.seek_target_frame),
+            Arc::clone(&self.spatial_enabled),
+            Arc::clone(&self.rotation_speed),
+            Arc::clone(&self.intensity),
+            Arc::clone(&self.current_azimuth),
+            Arc::clone(&self.spatial_3d_bridge),
+            Arc::clone(&self.reverb_bridge),
+            Arc::clone(&self.eq_bridge),
+            Arc::clone(&self.dynamics_bridge),
+            Arc::clone(&self.normalize_gain),
+            Arc::clone(&self.timeline_bridge),
+        )?;
+
+        // Swap active stream
+        {
+            let mut stream_lock = self._stream.write().unwrap();
+            *stream_lock = Some(new_stream);
+        }
+
+        // Update active device name & sample rate
+        {
+            let mut name_lock = self.current_device_name.write().unwrap();
+            *name_lock = device_name.to_string();
+        }
+        self.device_sample_rate.store(new_sample_rate, Ordering::Release);
+
+        // Refresh sample-rate-dependent filter coefficients
+        self.eq_bridge.set_params(new_sample_rate as f32, self.eq_bridge.get_params());
+        self.spatial_3d_bridge.set_distance(new_sample_rate as f32, self.spatial_3d_bridge.get_distance());
+        self.spatial_3d_bridge.set_elevation(new_sample_rate as f32, self.spatial_3d_bridge.get_elevation());
+
+        log::info!("Switched audio device to '{}' ({} Hz)", device_name, new_sample_rate);
+        Ok(self.get_audio_devices())
     }
 
     /// Loads an AudioBuffer for playback and resets playhead to 0.
@@ -671,12 +822,12 @@ impl AudioPlayer {
 
     /// Sets 3D distance parameter [0.0, 1.0] with UI-thread coefficient precalculation.
     pub fn set_distance(&self, distance: f32) {
-        self.spatial_3d_bridge.set_distance(self.device_sample_rate as f32, distance);
+        self.spatial_3d_bridge.set_distance(self.device_sample_rate.load(Ordering::Acquire) as f32, distance);
     }
 
     /// Sets 3D elevation parameter [-1.0, 1.0] with UI-thread coefficient precalculation.
     pub fn set_elevation(&self, elevation: f32) {
-        self.spatial_3d_bridge.set_elevation(self.device_sample_rate as f32, elevation);
+        self.spatial_3d_bridge.set_elevation(self.device_sample_rate.load(Ordering::Acquire) as f32, elevation);
     }
 
     /// Retrieves current 8D/3D spatial parameters with Ordering::Acquire.
@@ -697,7 +848,7 @@ impl AudioPlayer {
 
     /// Sets real-time EQ and master volume parameters with coefficient precalculation on the UI thread.
     pub fn set_eq_params(&self, params: EqParams) {
-        self.eq_bridge.set_params(self.device_sample_rate as f32, params);
+        self.eq_bridge.set_params(self.device_sample_rate.load(Ordering::Acquire) as f32, params);
     }
 
     /// Retrieves current EQ and master volume parameters with Ordering::Acquire.
@@ -737,7 +888,7 @@ impl AudioPlayer {
 
     /// Device hardware sample rate.
     pub fn device_sample_rate(&self) -> u32 {
-        self.device_sample_rate
+        self.device_sample_rate.load(Ordering::Acquire)
     }
 
     /// Returns the active timeline state.
@@ -921,5 +1072,16 @@ mod tests {
 
         let active = bridge.timeline.read().unwrap();
         assert_eq!(active.pan.evaluate(1.0), Some(0.5));
+    }
+
+    #[test]
+    fn test_headphone_detection_heuristic() {
+        assert!(is_headphone_device_name("Headphones (CMF Buds 2 Plus)"));
+        assert!(is_headphone_device_name("AirPods Pro"));
+        assert!(is_headphone_device_name("Sony WH-1000XM4"));
+        assert!(is_headphone_device_name("Gaming Headset Audio"));
+        assert!(is_headphone_device_name("In-Ear Monitor (IEM)"));
+        assert!(!is_headphone_device_name("Speakers (Realtek(R) Audio)"));
+        assert!(!is_headphone_device_name("AI Noise-cancelling Output (ASUS Utility)"));
     }
 }

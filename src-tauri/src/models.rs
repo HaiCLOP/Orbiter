@@ -186,5 +186,14 @@ pub struct PlaybackTick {
 
 pub use crate::timeline::{AutomationLane, AutomationLaneId, CurveType, Keyframe, TimelineState};
 
+/// Audio hardware output device descriptor.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AudioDeviceInfo {
+    pub name: String,
+    pub is_default: bool,
+    pub is_active: bool,
+    pub is_headphone: bool,
+}
+
 
 

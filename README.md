@@ -40,6 +40,7 @@ Built from the ground up with a custom real-time DSP core in **Rust** (CPAL / Sy
 - **Interactive Graph Editor**: High-DPI canvas with draggable keyframe diamonds, Bézier tangent handles, magnetic grid snapping, playhead scrub line, and 5 built-in orbit presets.
 - **Zero-Allocation Audio Thread**: Real-time CPAL callback performs zero heap allocations and zero lock acquisitions (`Ordering::Acquire` / `Release` atomic coefficient handoff).
 - **Latency-Compensated Telemetry**: Visual 3D radar dot, multi-lane graph playhead, and multi-resolution waveform scrubber are clock-compensated for lookahead delay, matching sound arrival at the listener's ears.
+- **Intelligent Audio Device Routing**: Automatically prioritizes connected headphones/earbuds (Bluetooth, AirPods, IEMs) over internal laptop speakers on startup, with real-time live device switching from the top navigation bar.
 - **Tabbed Workspace Architecture**: Dedicated modular views for **Edit**, **Graph**, **Spatial**, **Effects**, and **Render** with contextual property inspector controls.
 
 ---

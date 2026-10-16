@@ -3,7 +3,9 @@ use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::decode::{decode_audio_file, generate_waveform_peaks};
-use crate::models::{DynamicsParams, EqParams, ReverbParams, Spatial8DParams, TrackInfo};
+use crate::models::{
+    AudioDeviceInfo, DynamicsParams, EqParams, ReverbParams, Spatial8DParams, TrackInfo,
+};
 use crate::state::AppState;
 use crate::timeline::{AutomationLaneId, Keyframe, TimelineState};
 
@@ -426,6 +428,29 @@ pub fn load_timeline_preset(
 ) -> Result<TimelineState, String> {
     if let Some(player) = &state.player {
         player.load_timeline_preset(&preset_name, duration)
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
+}
+
+/// Retrieves all available audio output devices with headphone and active device markers.
+#[tauri::command]
+pub fn get_audio_devices(state: State<'_, AppState>) -> Result<Vec<AudioDeviceInfo>, String> {
+    if let Some(player) = &state.player {
+        Ok(player.get_audio_devices())
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
+}
+
+/// Switches active audio output device live during playback.
+#[tauri::command]
+pub fn set_audio_device(
+    device_name: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<AudioDeviceInfo>, String> {
+    if let Some(player) = &state.player {
+        player.set_audio_device(&device_name)
     } else {
         Err("Audio player engine is unavailable".to_string())
     }
