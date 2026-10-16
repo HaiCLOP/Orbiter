@@ -27,6 +27,7 @@ interface TimelineStoreState {
   removeKeyframe: (laneId: AutomationLaneId, keyframeId: string) => Promise<void>;
   clearLane: (laneId: AutomationLaneId) => Promise<void>;
   toggleLane: (laneId: AutomationLaneId) => Promise<void>;
+  setLaneEnabled: (laneId: AutomationLaneId, enabled: boolean) => Promise<void>;
   loadPreset: (presetName: string) => Promise<void>;
   setZoom: (zoom: number) => void;
   setSnapEnabled: (snap: boolean) => void;
@@ -200,6 +201,31 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
         set({ timeline: updated });
       } catch (err) {
         console.error('Failed to toggle lane:', err);
+      }
+    }
+  },
+
+  setLaneEnabled: async (laneId: AutomationLaneId, enabled: boolean) => {
+    const prev = get().timeline;
+    if (!prev) return;
+    const lane = prev.lanes.find((l) => l.id === laneId);
+    if (!lane || lane.enabled === enabled) return;
+
+    // Optimistic update
+    const nextLanes = prev.lanes.map((l) =>
+      l.id === laneId ? { ...l, enabled } : l
+    );
+    set({ timeline: { ...prev, lanes: nextLanes } });
+
+    if (isTauri()) {
+      try {
+        const updated = await invoke<TimelineState>('set_lane_enabled', {
+          lane: laneId,
+          enabled,
+        });
+        set({ timeline: updated });
+      } catch (err) {
+        console.error('Failed to set lane enabled:', err);
       }
     }
   },

@@ -290,6 +290,20 @@ export const useTrackStore = create<TrackState>((set, get) => ({
     }
   },
 
+  setAzimuth: async (azimuth: number) => {
+    const normalized = ((azimuth % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+    set({ azimuth: normalized });
+
+    if (isTauri()) {
+      try {
+        await invoke('set_azimuth', { azimuth: normalized });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        set({ error: msg });
+      }
+    }
+  },
+
   // 4-Band EQ & Master Volume Controls
   setEqParams: async (partialParams: Partial<EqParams>) => {
     const current = get().eqParams;

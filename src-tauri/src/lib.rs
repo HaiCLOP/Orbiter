@@ -63,6 +63,7 @@ pub fn run() {
             commands::set_intensity,
             commands::set_distance,
             commands::set_elevation,
+            commands::set_azimuth,
             commands::get_8d_params,
             commands::get_spatial_params,
             commands::set_eq_params,

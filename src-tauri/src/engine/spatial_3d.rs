@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use crate::engine::biquad::{BiquadCoeffs, CrossfadingBiquad};
 
 /// 3D Distance processing stage.
@@ -152,6 +152,8 @@ pub struct Spatial3DBridge {
     pub distance: AtomicU32,      // f32 bits
     pub elevation: AtomicU32,     // f32 bits
     pub target_gain: AtomicU32,   // f32 bits
+    pub manual_azimuth: AtomicU32, // f32 bits
+    pub manual_azimuth_enabled: AtomicBool,
     pub version: AtomicU32,       // Monotonic publish counter
 
     // Air Absorption Coefficients (high-cut)
@@ -182,6 +184,8 @@ impl Spatial3DBridge {
             distance: AtomicU32::new(default_dist.to_bits()),
             elevation: AtomicU32::new(default_elev.to_bits()),
             target_gain: AtomicU32::new(default_gain.to_bits()),
+            manual_azimuth: AtomicU32::new(0.0_f32.to_bits()),
+            manual_azimuth_enabled: AtomicBool::new(false),
             version: AtomicU32::new(1),
 
             air_b0: AtomicU32::new(air_coeffs.b0.to_bits()),
@@ -278,6 +282,25 @@ impl Spatial3DBridge {
 
     pub fn get_elevation(&self) -> f32 {
         f32::from_bits(self.elevation.load(Ordering::Acquire))
+    }
+
+    pub fn set_azimuth(&self, azimuth_rad: f32) {
+        self.manual_azimuth.store(azimuth_rad.to_bits(), Ordering::Release);
+        self.manual_azimuth_enabled.store(true, Ordering::Release);
+        self.version.fetch_add(1, Ordering::Release);
+    }
+
+    pub fn disable_manual_azimuth(&self) {
+        self.manual_azimuth_enabled.store(false, Ordering::Release);
+        self.version.fetch_add(1, Ordering::Release);
+    }
+
+    pub fn get_manual_azimuth(&self) -> Option<f32> {
+        if self.manual_azimuth_enabled.load(Ordering::Acquire) {
+            Some(f32::from_bits(self.manual_azimuth.load(Ordering::Acquire)))
+        } else {
+            None
+        }
     }
 }
 

@@ -1,13 +1,15 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { useTrackStore } from '../store/trackStore';
+import { useTimelineStore } from '../store/timelineStore';
 
 interface SpatialRadar3DProps {
   viewMode: '3D' | 'Top' | 'Front' | 'Side';
 }
 
-// Module-level GLTF cache so tab switching is instantaneous with zero network/file I/O
+// Module-level cache for GLTF listener head model
 let cachedGltfScene: THREE.Group | null = null;
 let gltfLoadingPromise: Promise<THREE.Group> | null = null;
 
@@ -32,368 +34,505 @@ function loadOrGetGltf(): Promise<THREE.Group> {
   return gltfLoadingPromise.then((scene) => scene.clone());
 }
 
-export const SpatialRadar3D: React.FC<SpatialRadar3DProps> = ({ viewMode }) => {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const { isPlaying, azimuth, spatialParams } = useTrackStore();
+/* =========================================================================
+   1. Camera Rig with Liquid Spring Transitions & Mouse Parallax
+   ========================================================================= */
+interface CameraRigProps {
+  viewMode: '3D' | 'Top' | 'Front' | 'Side';
+  isDragging: boolean;
+}
 
-  // Dynamic references updated without restarting the WebGL engine or re-fetching GLB
-  const isPlayingRef = useRef<boolean>(isPlaying);
-  const azimuthRef = useRef<number>(azimuth);
-  const spatialParamsRef = useRef(spatialParams);
-  const viewModeRef = useRef<'3D' | 'Top' | 'Front' | 'Side'>(viewMode);
+const CameraRig: React.FC<CameraRigProps> = ({ viewMode, isDragging }) => {
+  const { camera } = useThree();
+  const mouseRef = useRef({ x: 0, y: 0, targetX: 0, targetY: 0 });
 
-  // Sync refs on props/store updates
+  const cameraConfigs = useMemo<Record<'3D' | 'Top' | 'Front' | 'Side', { pos: THREE.Vector3; look: THREE.Vector3 }>>(() => ({
+    '3D': { pos: new THREE.Vector3(0, 2.4, 4.2), look: new THREE.Vector3(0, 0.15, 0) },
+    'Top': { pos: new THREE.Vector3(0, 5.0, 0.001), look: new THREE.Vector3(0, 0, 0) },
+    'Front': { pos: new THREE.Vector3(0, 0.2, 4.6), look: new THREE.Vector3(0, 0.1, 0) },
+    'Side': { pos: new THREE.Vector3(4.6, 0.2, 0), look: new THREE.Vector3(0, 0.1, 0) },
+  }), []);
+
+  const currentCamPos = useRef(cameraConfigs[viewMode].pos.clone());
+  const currentCamLook = useRef(cameraConfigs[viewMode].look.clone());
+
   useEffect(() => {
-    isPlayingRef.current = isPlaying;
-  }, [isPlaying]);
-
-  useEffect(() => {
-    azimuthRef.current = azimuth;
-  }, [azimuth]);
-
-  useEffect(() => {
-    spatialParamsRef.current = spatialParams;
-  }, [spatialParams]);
-
-  useEffect(() => {
-    viewModeRef.current = viewMode;
-  }, [viewMode]);
-
-  // Mount WebGL Engine ONCE
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    let width = container.clientWidth || 300;
-    let height = container.clientHeight || 200;
-
-    // 1. Scene & Camera
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(40, width / height, 0.1, 100);
-
-    const cameraTargets: Record<'3D' | 'Top' | 'Front' | 'Side', { pos: THREE.Vector3; look: THREE.Vector3 }> = {
-      '3D': { pos: new THREE.Vector3(0, 2.4, 4.2), look: new THREE.Vector3(0, 0.15, 0) },
-      'Top': { pos: new THREE.Vector3(0, 5.0, 0.01), look: new THREE.Vector3(0, 0, 0) },
-      'Front': { pos: new THREE.Vector3(0, 0.2, 4.6), look: new THREE.Vector3(0, 0.1, 0) },
-      'Side': { pos: new THREE.Vector3(4.6, 0.2, 0), look: new THREE.Vector3(0, 0.1, 0) },
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isDragging || viewMode !== '3D') return;
+      const nx = e.clientX / window.innerWidth - 0.5;
+      const ny = e.clientY / window.innerHeight - 0.5;
+      mouseRef.current.targetX = nx * 0.35;
+      mouseRef.current.targetY = ny * 0.25;
     };
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, [isDragging, viewMode]);
 
-    const currentCamPos = cameraTargets[viewModeRef.current].pos.clone();
-    const currentCamLook = cameraTargets[viewModeRef.current].look.clone();
-    camera.position.copy(currentCamPos);
-    camera.lookAt(currentCamLook);
+  useFrame(() => {
+    const target = cameraConfigs[viewMode];
+    currentCamPos.current.lerp(target.pos, 0.08);
+    currentCamLook.current.lerp(target.look, 0.08);
 
-    // 2. High-Performance Hardware WebGL Renderer
-    const renderer = new THREE.WebGLRenderer({
-      alpha: true,
-      antialias: true,
-      powerPreference: 'high-performance',
-    });
-    renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    container.innerHTML = '';
-    container.appendChild(renderer.domElement);
+    mouseRef.current.x += (mouseRef.current.targetX - mouseRef.current.x) * 0.08;
+    mouseRef.current.y += (mouseRef.current.targetY - mouseRef.current.y) * 0.08;
 
-    // 3. Apple Studio Lighting (Stable, Physical, No Strobing)
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
-    scene.add(ambientLight);
+    if (viewMode === '3D' && !isDragging) {
+      camera.position.x = currentCamPos.current.x + mouseRef.current.x * 1.5;
+      camera.position.y = currentCamPos.current.y - mouseRef.current.y * 1.0;
+      camera.position.z = currentCamPos.current.z;
+    } else {
+      camera.position.copy(currentCamPos.current);
+    }
+    camera.lookAt(currentCamLook.current);
+  });
 
-    const keyLight = new THREE.DirectionalLight(0xfff8ee, 1.8);
-    keyLight.position.set(2.5, 4.5, 3.5);
-    scene.add(keyLight);
+  return null;
+};
 
-    const fillLight = new THREE.DirectionalLight(0xcfd8dc, 0.85);
-    fillLight.position.set(-3, 2, 2);
-    scene.add(fillLight);
+/* =========================================================================
+   2. Studio Lighting Rig
+   ========================================================================= */
+const StudioLights: React.FC = () => {
+  return (
+    <>
+      <ambientLight intensity={0.7} color="#ffffff" />
+      <directionalLight position={[2.5, 4.5, 3.5]} intensity={1.8} color="#fff8ee" />
+      <directionalLight position={[-3, 2, 2]} intensity={0.85} color="#cfd8dc" />
+      <directionalLight position={[0, 3, -3.5]} intensity={1.4} color="#e2e8f0" />
+    </>
+  );
+};
 
-    const rimLight = new THREE.DirectionalLight(0xe2e8f0, 1.4);
-    rimLight.position.set(0, 3, -3.5);
-    scene.add(rimLight);
+/* =========================================================================
+   3. Apple Space Gray / Titanium Center Head Model
+   ========================================================================= */
+interface CenterHeadProps {
+  azimuth: number;
+  elevation: number;
+  enabled: boolean;
+}
 
-    // 4. Subtle Apple Pro Audio Polar Grid
-    const gridGroup = new THREE.Group();
-    const radii = [0.9, 1.4, 1.9, 2.4];
-    radii.forEach((r, idx) => {
-      const ringGeo = new THREE.RingGeometry(r - 0.005, r + 0.005, 72);
-      const ringMat = new THREE.MeshBasicMaterial({
-        color: idx === 1 ? 0x38bdf8 : 0xffffff,
-        transparent: true,
-        opacity: idx === 1 ? 0.18 : 0.06,
-        side: THREE.DoubleSide,
-      });
-      const ringMesh = new THREE.Mesh(ringGeo, ringMat);
-      ringMesh.rotation.x = Math.PI / 2;
-      gridGroup.add(ringMesh);
-    });
+const CenterHeadModel: React.FC<CenterHeadProps> = ({ azimuth, elevation, enabled }) => {
+  const headGroupRef = useRef<THREE.Group>(null);
+  const [model, setModel] = useState<THREE.Group | null>(null);
 
-    // Crosshair axes (Front/Back, Left/Right)
-    const crossMat = new THREE.LineBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0.07,
-    });
-    const crossPoints = [
-      new THREE.Vector3(-2.4, 0, 0),
-      new THREE.Vector3(2.4, 0, 0),
-      new THREE.Vector3(0, 0, -2.4),
-      new THREE.Vector3(0, 0, 2.4),
-    ];
-    const crossGeo = new THREE.BufferGeometry().setFromPoints(crossPoints);
-    const crossLines = new THREE.LineSegments(crossGeo, crossMat);
-    gridGroup.add(crossLines);
-    scene.add(gridGroup);
-
-    // 5. Stylized Head & Headphones Container
-    const headGroup = new THREE.Group();
-    scene.add(headGroup);
-
-    // Apple Space Gray / Obsidian Mannequin Materials
+  // Materials
+  const materials = useMemo(() => {
     const headMat = new THREE.MeshStandardMaterial({
       color: 0x16181f,
       metalness: 0.65,
       roughness: 0.35,
     });
-
     const hpCupMat = new THREE.MeshStandardMaterial({
       color: 0x242732,
       metalness: 0.88,
       roughness: 0.18,
     });
-
     const cushionMat = new THREE.MeshStandardMaterial({
       color: 0x121318,
       metalness: 0.1,
       roughness: 0.85,
     });
+    return { headMat, hpCupMat, cushionMat };
+  }, []);
 
-    // Procedural Fallback Mannequin (Mounted synchronously while GLTF is ready)
-    const fallbackMesh = new THREE.Group();
-    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.48, 36, 28), headMat);
-    skull.scale.set(0.85, 1.15, 1.0);
-    fallbackMesh.add(skull);
-
-    // Ear cups
-    const leftCup = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.12, 28), hpCupMat);
-    leftCup.rotation.z = Math.PI / 2;
-    leftCup.position.set(-0.46, 0.02, 0);
-    fallbackMesh.add(leftCup);
-
-    const leftCushion = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.05, 16, 28), cushionMat);
-    leftCushion.rotation.y = Math.PI / 2;
-    leftCushion.position.set(-0.41, 0.02, 0);
-    fallbackMesh.add(leftCushion);
-
-    const rightCup = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.12, 28), hpCupMat);
-    rightCup.rotation.z = Math.PI / 2;
-    rightCup.position.set(0.46, 0.02, 0);
-    fallbackMesh.add(rightCup);
-
-    const rightCushion = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.05, 16, 28), cushionMat);
-    rightCushion.rotation.y = Math.PI / 2;
-    rightCushion.position.set(0.41, 0.02, 0);
-    fallbackMesh.add(rightCushion);
-
-    // Headband
-    const band = new THREE.Mesh(new THREE.TorusGeometry(0.51, 0.035, 16, 36, Math.PI), hpCupMat);
-    band.position.set(0, 0.05, 0);
-    fallbackMesh.add(band);
-
-    headGroup.add(fallbackMesh);
-
-    // Load or reuse cached GLB model seamlessly
+  useEffect(() => {
+    let mounted = true;
     loadOrGetGltf()
-      .then((model) => {
-        // Style imported meshes with Apple anodized titanium materials
-        model.traverse((child) => {
+      .then((loadedScene) => {
+        if (!mounted) return;
+        loadedScene.traverse((child) => {
           if ((child as THREE.Mesh).isMesh) {
             const mesh = child as THREE.Mesh;
             const name = mesh.name.toLowerCase();
             if (name.includes('ear') || name.includes('cup') || name.includes('headphone')) {
-              mesh.material = hpCupMat;
+              mesh.material = materials.hpCupMat;
             } else if (name.includes('cushion') || name.includes('foam')) {
-              mesh.material = cushionMat;
+              mesh.material = materials.cushionMat;
             } else {
-              mesh.material = headMat;
+              mesh.material = materials.headMat;
             }
           }
         });
-        model.scale.set(0.55, 0.55, 0.55);
-        model.position.set(0, 0, 0);
-
-        // Swap out fallback cleanly
-        while (headGroup.children.length > 0) {
-          headGroup.remove(headGroup.children[0]);
-        }
-        headGroup.add(model);
+        loadedScene.scale.set(0.55, 0.55, 0.55);
+        loadedScene.position.set(0, 0, 0);
+        setModel(loadedScene);
       })
-      .catch((e) => {
-        console.warn('Retaining procedural Apple mannequin head:', e);
+      .catch((err) => {
+        console.warn('Retaining procedural Apple head fallback:', err);
       });
 
-    // 6. Sound Source Satellite (Steady, Crisp, Luminous Apple Accent)
-    const satelliteGroup = new THREE.Group();
-    scene.add(satelliteGroup);
+    return () => {
+      mounted = false;
+    };
+  }, [materials]);
 
-    // Primary Core Orb
-    const satGeo = new THREE.SphereGeometry(0.08, 32, 32);
-    const satMat = new THREE.MeshStandardMaterial({
-      color: 0x38bdf8,
-      emissive: 0x0284c7,
-      emissiveIntensity: 1.2,
-      roughness: 0.15,
-      metalness: 0.5,
-    });
-    const satMesh = new THREE.Mesh(satGeo, satMat);
-    satelliteGroup.add(satMesh);
+  // Subtle micro-look toward the sound source
+  useFrame(() => {
+    if (!headGroupRef.current) return;
+    if (enabled) {
+      headGroupRef.current.rotation.y = THREE.MathUtils.lerp(
+        headGroupRef.current.rotation.y,
+        -azimuth * 0.1,
+        0.08
+      );
+      headGroupRef.current.rotation.x = THREE.MathUtils.lerp(
+        headGroupRef.current.rotation.x,
+        -elevation * 0.06,
+        0.08
+      );
+    } else {
+      headGroupRef.current.rotation.y = THREE.MathUtils.lerp(
+        headGroupRef.current.rotation.y,
+        0,
+        0.08
+      );
+      headGroupRef.current.rotation.x = THREE.MathUtils.lerp(
+        headGroupRef.current.rotation.x,
+        0,
+        0.08
+      );
+    }
+  });
 
-    // Refined translucent outer glass shell (no pulsing strobe)
-    const haloGeo = new THREE.SphereGeometry(0.14, 24, 24);
-    const haloMat = new THREE.MeshBasicMaterial({
-      color: 0x38bdf8,
-      transparent: true,
-      opacity: 0.16,
-    });
-    const haloMesh = new THREE.Mesh(haloGeo, haloMat);
-    satelliteGroup.add(haloMesh);
+  return (
+    <group ref={headGroupRef}>
+      {model ? (
+        <primitive object={model} />
+      ) : (
+        /* Synchronous procedural fallback mannequin */
+        <group>
+          {/* Skull */}
+          <mesh scale={[0.85, 1.15, 1.0]}>
+            <sphereGeometry args={[0.48, 32, 24]} />
+            <primitive object={materials.headMat} attach="material" />
+          </mesh>
+          {/* Left Earcup */}
+          <mesh rotation={[0, 0, Math.PI / 2]} position={[-0.46, 0.02, 0]}>
+            <cylinderGeometry args={[0.2, 0.2, 0.12, 24]} />
+            <primitive object={materials.hpCupMat} attach="material" />
+          </mesh>
+          <mesh rotation={[0, Math.PI / 2, 0]} position={[-0.41, 0.02, 0]}>
+            <torusGeometry args={[0.18, 0.05, 16, 24]} />
+            <primitive object={materials.cushionMat} attach="material" />
+          </mesh>
+          {/* Right Earcup */}
+          <mesh rotation={[0, 0, Math.PI / 2]} position={[0.46, 0.02, 0]}>
+            <cylinderGeometry args={[0.2, 0.2, 0.12, 24]} />
+            <primitive object={materials.hpCupMat} attach="material" />
+          </mesh>
+          <mesh rotation={[0, Math.PI / 2, 0]} position={[0.41, 0.02, 0]}>
+            <torusGeometry args={[0.18, 0.05, 16, 24]} />
+            <primitive object={materials.cushionMat} attach="material" />
+          </mesh>
+          {/* Headband */}
+          <mesh position={[0, 0.05, 0]}>
+            <torusGeometry args={[0.51, 0.035, 16, 32, Math.PI]} />
+            <primitive object={materials.hpCupMat} attach="material" />
+          </mesh>
+        </group>
+      )}
+    </group>
+  );
+};
 
-    // Binaural Contralateral Indicator (Small, subtle echo bead)
-    const echoGeo = new THREE.SphereGeometry(0.035, 16, 16);
-    const echoMat = new THREE.MeshBasicMaterial({
-      color: 0x94a3b8,
-      transparent: true,
-      opacity: 0.5,
-    });
-    const echoMesh = new THREE.Mesh(echoGeo, echoMat);
-    scene.add(echoMesh);
+/* =========================================================================
+   4. Polar Radar Grid System (Concentric rings + Crosshairs)
+   ========================================================================= */
+const PolarRadarGrid: React.FC = () => {
+  const radii = [0.9, 1.4, 1.9, 2.4];
+  const crossPoints = useMemo(() => [
+    new THREE.Vector3(-2.4, 0, 0),
+    new THREE.Vector3(2.4, 0, 0),
+    new THREE.Vector3(0, 0, -2.4),
+    new THREE.Vector3(0, 0, 2.4),
+  ], []);
 
-    // Dynamic Orbit Trajectory Hairline
-    const orbitPoints: THREE.Vector3[] = [];
+  const crossGeo = useMemo(() => new THREE.BufferGeometry().setFromPoints(crossPoints), [crossPoints]);
+  const crossLines = useMemo(
+    () => new THREE.LineSegments(crossGeo, new THREE.LineBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.06 })),
+    [crossGeo]
+  );
+
+  return (
+    <group>
+      {radii.map((r, idx) => (
+        <mesh key={r} rotation={[-Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[r - 0.005, r + 0.005, 72]} />
+          <meshBasicMaterial
+            color={idx === 1 ? '#38bdf8' : '#ffffff'}
+            transparent
+            opacity={idx === 1 ? 0.16 : 0.05}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      ))}
+      <primitive object={crossLines} />
+    </group>
+  );
+};
+
+/* =========================================================================
+   5. Dynamic Orbit Hairline Ring
+   ========================================================================= */
+interface OrbitRingProps {
+  radius: number;
+  elevationY: number;
+}
+
+const DynamicOrbitRing: React.FC<OrbitRingProps> = ({ radius, elevationY }) => {
+  const lineObject = useMemo(() => {
+    const points: THREE.Vector3[] = [];
     const segments = 72;
     for (let i = 0; i <= segments; i++) {
       const theta = (i / segments) * Math.PI * 2;
-      orbitPoints.push(new THREE.Vector3(Math.cos(theta), 0, Math.sin(theta)));
+      points.push(new THREE.Vector3(Math.cos(theta), 0, Math.sin(theta)));
     }
-    const orbitGeo = new THREE.BufferGeometry().setFromPoints(orbitPoints);
-    const orbitMat = new THREE.LineBasicMaterial({
-      color: 0x38bdf8,
-      transparent: true,
-      opacity: 0.28,
-    });
-    const orbitLine = new THREE.Line(orbitGeo, orbitMat);
-    scene.add(orbitLine);
+    const geo = new THREE.BufferGeometry().setFromPoints(points);
+    const mat = new THREE.LineBasicMaterial({ color: '#38bdf8', transparent: true, opacity: 0.24 });
+    return new THREE.Line(geo, mat);
+  }, []);
 
-    // 7. Interactive Apple-Style Parallax on Mouse Move
-    const mouse = { x: 0, y: 0, targetX: 0, targetY: 0 };
-    const handleMouseMove = (e: MouseEvent) => {
-      const rect = container.getBoundingClientRect();
-      const nx = (e.clientX - rect.left) / rect.width - 0.5;
-      const ny = (e.clientY - rect.top) / rect.height - 0.5;
-      mouse.targetX = nx * 0.35;
-      mouse.targetY = ny * 0.25;
-    };
-    container.addEventListener('mousemove', handleMouseMove);
+  useFrame(() => {
+    lineObject.scale.set(radius, 1, radius);
+    lineObject.position.set(0, elevationY, 0);
+  });
 
-    // 8. Rock-Solid 60/120 FPS Render Loop
-    let animId: number;
-    let visualAngle = azimuthRef.current;
-    let lastTime = performance.now();
+  return <primitive object={lineObject} />;
+};
 
-    const animate = (now: number) => {
-      const dt = Math.min((now - lastTime) / 1000, 0.1);
-      lastTime = now;
+/* =========================================================================
+   6. Draggable 3D Sound Source Dot with Spherical Raycasting & Wheel
+   ========================================================================= */
+interface DraggableDotProps {
+  azimuth: number;
+  distance: number;
+  elevation: number;
+  setIsDragging: (dragging: boolean) => void;
+}
 
-      // Smooth mouse parallax damping
-      mouse.x += (mouse.targetX - mouse.x) * 0.08;
-      mouse.y += (mouse.targetY - mouse.y) * 0.08;
+const DraggableSourceDot: React.FC<DraggableDotProps> = ({
+  azimuth,
+  distance,
+  elevation,
+  setIsDragging,
+}) => {
+  const { setAzimuth, setDistance, setElevation } = useTrackStore();
+  const { setLaneEnabled, timeline } = useTimelineStore();
+  const { raycaster, camera } = useThree();
 
-      // Fluid camera transition between view modes
-      const targetMode = viewModeRef.current;
-      const targetConfig = cameraTargets[targetMode];
-      currentCamPos.lerp(targetConfig.pos, 0.08);
-      currentCamLook.lerp(targetConfig.look, 0.08);
+  const isDraggingRef = useRef(false);
+  const dragPlaneRef = useRef<THREE.Plane>(new THREE.Plane());
 
-      if (targetMode === '3D') {
-        camera.position.x = currentCamPos.x + mouse.x * 1.5;
-        camera.position.y = currentCamPos.y - mouse.y * 1.0;
-        camera.position.z = currentCamPos.z;
-      } else {
-        camera.position.copy(currentCamPos);
+  // Orbit coordinates
+  const orbitRadius = 0.9 + 1.3 * Math.max(0, Math.min(1, distance));
+  const elevY = Math.max(-1, Math.min(1, elevation)) * 0.65;
+
+  const satX = orbitRadius * Math.sin(azimuth);
+  const satZ = -orbitRadius * Math.cos(azimuth);
+
+  // Contralateral reflection point
+  const echoRadius = orbitRadius * 0.6;
+  const echoX = -echoRadius * Math.sin(azimuth);
+  const echoY = -elevY * 0.4;
+  const echoZ = echoRadius * Math.cos(azimuth);
+
+  // Option B: Drop lanes to manual mode on drag start
+  const dropLanesToManual = useCallback(() => {
+    if (!timeline) return;
+    const panLane = timeline.lanes.find((l) => l.id === 'pan');
+    const distLane = timeline.lanes.find((l) => l.id === 'distance');
+    const elevLane = timeline.lanes.find((l) => l.id === 'elevation');
+
+    if (panLane && panLane.enabled && panLane.keyframes.length > 0) {
+      setLaneEnabled('pan', false);
+    }
+    if (distLane && distLane.enabled && distLane.keyframes.length > 0) {
+      setLaneEnabled('distance', false);
+    }
+    if (elevLane && elevLane.enabled && elevLane.keyframes.length > 0) {
+      setLaneEnabled('elevation', false);
+    }
+  }, [timeline, setLaneEnabled]);
+
+  const handlePointerDown = (e: any) => {
+    e.stopPropagation();
+    isDraggingRef.current = true;
+    setIsDragging(true);
+    e.target.setPointerCapture(e.pointerId);
+
+    // Establish drag plane facing camera at dot position
+    const dotPos = new THREE.Vector3(satX, elevY, satZ);
+    const cameraDir = new THREE.Vector3();
+    camera.getWorldDirection(cameraDir);
+    dragPlaneRef.current.setFromNormalAndCoplanarPoint(cameraDir.negate(), dotPos);
+
+    dropLanesToManual();
+  };
+
+  const handlePointerMove = (e: any) => {
+    if (!isDraggingRef.current) return;
+    e.stopPropagation();
+
+    // 1. Spherical raycasting: Cast against an invisible sphere of current orbit radius
+    const sphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), orbitRadius);
+    const hitPoint = new THREE.Vector3();
+    const hit = raycaster.ray.intersectSphere(sphere, hitPoint);
+
+    if (hit) {
+      // Calculate spherical Azimuth: front is -Z, right is +X
+      let newAzimuth = Math.atan2(hitPoint.x, -hitPoint.z);
+      if (newAzimuth < 0) newAzimuth += 2 * Math.PI;
+
+      // Calculate Elevation [-1.0, 1.0]
+      const clampedNormY = Math.max(-1, Math.min(1, hitPoint.y / 0.65));
+
+      setAzimuth(newAzimuth);
+      setElevation(clampedNormY);
+    } else {
+      // Fallback to planar drag if ray misses sphere
+      const planeHit = new THREE.Vector3();
+      if (raycaster.ray.intersectPlane(dragPlaneRef.current, planeHit)) {
+        let newAzimuth = Math.atan2(planeHit.x, -planeHit.z);
+        if (newAzimuth < 0) newAzimuth += 2 * Math.PI;
+        setAzimuth(newAzimuth);
       }
-      camera.lookAt(currentCamLook);
+    }
+  };
 
-      // Angle interpolation
-      const params = spatialParamsRef.current;
-      if (isPlayingRef.current && params.enabled) {
-        const delta = 2 * Math.PI * params.rotation_speed * dt;
-        visualAngle = (visualAngle + delta) % (2 * Math.PI);
-      } else {
-        // Damped blend toward latest rust audio azimuth
-        const diff = azimuthRef.current - visualAngle;
-        visualAngle += diff * 0.2;
-      }
+  const handlePointerUp = (e: any) => {
+    if (!isDraggingRef.current) return;
+    isDraggingRef.current = false;
+    setIsDragging(false);
+    try {
+      e.target.releasePointerCapture(e.pointerId);
+    } catch {
+      // Ignore release capture error
+    }
+  };
 
-      const dist = Math.max(0, Math.min(1, params.distance ?? 0));
-      const elev = Math.max(-1, Math.min(1, params.elevation ?? 0));
-
-      // Dynamic orbit distance radius: 0.9m to 2.2m
-      const orbitRadius = 0.9 + 1.3 * dist;
-      const elevY = elev * 0.65;
-
-      // Position sound source
-      const satX = orbitRadius * Math.sin(visualAngle);
-      const satZ = -orbitRadius * Math.cos(visualAngle);
-      satelliteGroup.position.set(satX, elevY, satZ);
-
-      // Position contralateral reflection
-      const echoRadius = orbitRadius * 0.6;
-      echoMesh.position.set(-echoRadius * Math.sin(visualAngle), -elevY * 0.4, echoRadius * Math.cos(visualAngle));
-
-      // Adjust dynamic orbit line scale & elevation
-      orbitLine.scale.set(orbitRadius, 1, orbitRadius);
-      orbitLine.position.y = elevY;
-
-      // Subtle, refined head micro-tracking (Apple Spatial Audio behavior)
-      if (params.enabled) {
-        headGroup.rotation.y = THREE.MathUtils.lerp(headGroup.rotation.y, -visualAngle * 0.1, 0.08);
-        headGroup.rotation.x = THREE.MathUtils.lerp(headGroup.rotation.x, -elev * 0.06, 0.08);
-      } else {
-        headGroup.rotation.y = THREE.MathUtils.lerp(headGroup.rotation.y, 0, 0.08);
-        headGroup.rotation.x = THREE.MathUtils.lerp(headGroup.rotation.x, 0, 0.08);
-      }
-
-      renderer.render(scene, camera);
-      animId = requestAnimationFrame(animate);
-    };
-
-    animId = requestAnimationFrame(animate);
-
-    // Auto-resize handler
-    const handleResize = () => {
-      if (!container) return;
-      width = container.clientWidth || 300;
-      height = container.clientHeight || 200;
-      camera.aspect = width / height;
-      camera.updateProjectionMatrix();
-      renderer.setSize(width, height);
-    };
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      cancelAnimationFrame(animId);
-      container.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('resize', handleResize);
-      renderer.dispose();
-      if (container.contains(renderer.domElement)) {
-        container.removeChild(renderer.domElement);
-      }
-    };
-  }, []); // Run ONCE on mount — eliminates all lag, flickering, and GLB reload storms!
+  // Scroll wheel on canvas adjusts Distance
+  const handleWheel = (e: any) => {
+    e.stopPropagation();
+    const delta = e.deltaY * -0.0012;
+    const newDist = Math.max(0, Math.min(1, distance + delta));
+    setDistance(newDist);
+    dropLanesToManual();
+  };
 
   return (
-    <div
-      ref={containerRef}
-      className="w-full h-full relative cursor-grab active:cursor-grabbing select-none"
-    />
+    <group onWheel={handleWheel}>
+      {/* Dynamic Orbit Ring */}
+      <DynamicOrbitRing radius={orbitRadius} elevationY={elevY} />
+
+      {/* Invisible Large Pick Collider around Dot */}
+      <mesh
+        position={[satX, elevY, satZ]}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+      >
+        <sphereGeometry args={[0.22, 16, 16]} />
+        <meshBasicMaterial visible={false} />
+      </mesh>
+
+      {/* Visible Source Dot (Apple Electric Sky) */}
+      <group position={[satX, elevY, satZ]}>
+        <mesh>
+          <sphereGeometry args={[0.08, 32, 32]} />
+          <meshStandardMaterial
+            color="#38bdf8"
+            emissive="#0284c7"
+            emissiveIntensity={1.2}
+            roughness={0.15}
+            metalness={0.5}
+          />
+        </mesh>
+        {/* Soft Translucent Aura */}
+        <mesh>
+          <sphereGeometry args={[0.13, 24, 24]} />
+          <meshBasicMaterial color="#38bdf8" transparent opacity={0.18} />
+        </mesh>
+      </group>
+
+      {/* Binaural Contralateral Echo Dot */}
+      <mesh position={[echoX, echoY, echoZ]}>
+        <sphereGeometry args={[0.035, 16, 16]} />
+        <meshBasicMaterial color="#94a3b8" transparent opacity={0.45} />
+      </mesh>
+    </group>
+  );
+};
+
+/* =========================================================================
+   MAIN EXPORT: 3D Spatial Hologram with Draggable Dot
+   ========================================================================= */
+export const SpatialRadar3D: React.FC<SpatialRadar3DProps> = ({ viewMode }) => {
+  const { azimuth, spatialParams } = useTrackStore();
+  const [isDragging, setIsDragging] = useState(false);
+
+  const degrees = Math.round((azimuth * 180) / Math.PI) % 360;
+  const distPct = Math.round((spatialParams.distance ?? 0) * 100);
+  const elevPct = Math.round((spatialParams.elevation ?? 0) * 100);
+
+  const getCardinal = (deg: number) => {
+    if (deg >= 315 || deg < 45) return 'Front';
+    if (deg >= 45 && deg < 135) return 'Right';
+    if (deg >= 135 && deg < 225) return 'Rear';
+    return 'Left';
+  };
+
+  return (
+    <div className="w-full h-full relative select-none flex flex-col overflow-hidden bg-transparent">
+      {/* 3D WebGL Canvas */}
+      <div className="flex-1 w-full relative cursor-grab active:cursor-grabbing">
+        <Canvas
+          camera={{ fov: 40, near: 0.1, far: 100, position: [0, 2.4, 4.2] }}
+          gl={{ powerPreference: 'high-performance', antialias: true, alpha: true }}
+          className="w-full h-full"
+        >
+          <CameraRig viewMode={viewMode} isDragging={isDragging} />
+          <StudioLights />
+          <CenterHeadModel
+            azimuth={azimuth}
+            elevation={spatialParams.elevation ?? 0}
+            enabled={spatialParams.enabled}
+          />
+          <PolarRadarGrid />
+          <DraggableSourceDot
+            azimuth={azimuth}
+            distance={spatialParams.distance ?? 0}
+            elevation={spatialParams.elevation ?? 0}
+            setIsDragging={setIsDragging}
+          />
+        </Canvas>
+      </div>
+
+      {/* Floating Readout Bar (Matching Reference Spec) */}
+      <div className="absolute bottom-1.5 left-2 right-2 h-7 glass-pill rounded-lg px-3 flex items-center justify-between text-[10px] font-mono tabular-nums text-zinc-400 pointer-events-none shadow-xs">
+        <div className="flex items-center space-x-2.5">
+          <span className="flex items-center space-x-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
+            <span className="text-zinc-200 font-medium">
+              Az: {degrees}° ({getCardinal(degrees)})
+            </span>
+          </span>
+          <span className="text-white/10">•</span>
+          <span className="text-amber-400 font-medium">
+            Dist: {distPct}%
+          </span>
+          <span className="text-white/10">•</span>
+          <span className="text-purple-400 font-medium">
+            Elev: {elevPct > 0 ? `+${elevPct}%` : `${elevPct}%`}
+          </span>
+        </div>
+
+        <div className="flex items-center space-x-2 text-zinc-500 text-[9px]">
+          <span>Drag dot to position</span>
+          <span>•</span>
+          <span>Scroll wheel: Distance</span>
+        </div>
+      </div>
+    </div>
   );
 };

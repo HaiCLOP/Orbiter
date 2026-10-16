@@ -232,6 +232,20 @@ pub fn set_elevation(elevation: f32, state: State<'_, AppState>) -> Result<(), S
     }
 }
 
+/// Sets manual 3D azimuth angle in radians [0, 2*PI).
+///
+/// Inputs: `azimuth` (radians, e.g. 0.0 to 6.283185)
+/// Invariants: Crossfaded and applied smoothly to the 8D panner.
+#[tauri::command]
+pub fn set_azimuth(azimuth: f32, state: State<'_, AppState>) -> Result<(), String> {
+    if let Some(player) = &state.player {
+        player.set_azimuth(azimuth);
+        Ok(())
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
+}
+
 /// Retrieves current 8D/3D spatial parameters.
 #[tauri::command]
 pub fn get_8d_params(state: State<'_, AppState>) -> Result<Spatial8DParams, String> {

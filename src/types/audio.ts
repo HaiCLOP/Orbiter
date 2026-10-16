@@ -104,6 +104,7 @@ export interface TrackState {
   setIntensity: (intensity: number) => Promise<void>;
   setDistance: (distance: number) => Promise<void>;
   setElevation: (elevation: number) => Promise<void>;
+  setAzimuth: (azimuth: number) => Promise<void>;
 
   // EQ Actions
   setEqParams: (params: Partial<EqParams>) => Promise<void>;

@@ -537,8 +537,12 @@ impl AudioPlayer {
                         if let Some(pan_val) = local_timeline.pan.evaluate(t_sec) {
                             panner.set_azimuth_override(Some(pan_val * std::f32::consts::PI));
                             prev_pan_automated = true;
-                        } else if prev_pan_automated {
-                            panner.set_azimuth_override(None);
+                        } else if prev_pan_automated || cb_spatial_3d_bridge.manual_azimuth_enabled.load(Ordering::Acquire) {
+                            if let Some(man_az) = cb_spatial_3d_bridge.get_manual_azimuth() {
+                                panner.set_azimuth_override(Some(man_az));
+                            } else {
+                                panner.set_azimuth_override(None);
+                            }
                             prev_pan_automated = false;
                         }
 
@@ -859,9 +863,17 @@ impl AudioPlayer {
         self.spatial_enabled.store(enabled, Ordering::Release);
     }
 
-    /// Sets 8D rotation speed in Hz with Ordering::Release.
+    /// Sets 8D rotation speed in Hz with Ordering::Release and disables manual azimuth lock.
     pub fn set_rotation_speed(&self, speed: f32) {
+        self.spatial_3d_bridge.disable_manual_azimuth();
         self.rotation_speed.store(speed.to_bits(), Ordering::Release);
+    }
+
+    /// Sets manual 3D azimuth position directly in radians [0, 2*PI).
+    pub fn set_azimuth(&self, radians: f32) {
+        self.spatial_3d_bridge.set_azimuth(radians);
+        self.current_azimuth.store(radians.to_bits(), Ordering::Release);
+        self.spatial_enabled.store(true, Ordering::Release);
     }
 
     /// Sets 8D spatial intensity (0.0 to 1.0) with Ordering::Release.
