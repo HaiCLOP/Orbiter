@@ -471,68 +471,28 @@ export const SpatialRadar3D: React.FC<SpatialRadar3DProps> = ({ viewMode }) => {
   const { azimuth, spatialParams } = useTrackStore();
   const [isDragging, setIsDragging] = useState(false);
 
-  const degrees = Math.round((azimuth * 180) / Math.PI) % 360;
-  const distPct = Math.round((spatialParams.distance ?? 0) * 100);
-  const elevPct = Math.round((spatialParams.elevation ?? 0) * 100);
-
-  const getCardinal = (deg: number) => {
-    if (deg >= 315 || deg < 45) return 'Front';
-    if (deg >= 45 && deg < 135) return 'Right';
-    if (deg >= 135 && deg < 225) return 'Rear';
-    return 'Left';
-  };
-
   return (
-    <div className="w-full h-full relative select-none flex flex-col overflow-hidden bg-transparent">
-      {/* 3D WebGL Canvas */}
-      <div className="flex-1 w-full relative cursor-grab active:cursor-grabbing">
-        <Canvas
-          camera={{ fov: 40, near: 0.1, far: 100, position: [0, 2.4, 4.2] }}
-          gl={{ powerPreference: 'high-performance', antialias: true, alpha: true }}
-          className="w-full h-full"
-        >
-          <CameraRig viewMode={viewMode} isDragging={isDragging} />
-          <StudioLights />
-          <CenterHeadModel
-            azimuth={azimuth}
-            elevation={spatialParams.elevation ?? 0}
-            enabled={spatialParams.enabled}
-          />
-          <PolarRadarGrid />
-          <DraggableSourceDot
-            azimuth={azimuth}
-            distance={spatialParams.distance ?? 0}
-            elevation={spatialParams.elevation ?? 0}
-            setIsDragging={setIsDragging}
-          />
-        </Canvas>
-      </div>
-
-      {/* Floating Readout Bar (Matching Reference Spec) */}
-      <div className="absolute bottom-1.5 left-2 right-2 h-7 glass-pill rounded-lg px-3 flex items-center justify-between text-[10px] font-mono tabular-nums text-zinc-400 pointer-events-none shadow-xs">
-        <div className="flex items-center space-x-2.5">
-          <span className="flex items-center space-x-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
-            <span className="text-zinc-200 font-medium">
-              Az: {degrees}° ({getCardinal(degrees)})
-            </span>
-          </span>
-          <span className="text-white/10">•</span>
-          <span className="text-amber-400 font-medium">
-            Dist: {distPct}%
-          </span>
-          <span className="text-white/10">•</span>
-          <span className="text-purple-400 font-medium">
-            Elev: {elevPct > 0 ? `+${elevPct}%` : `${elevPct}%`}
-          </span>
-        </div>
-
-        <div className="flex items-center space-x-2 text-zinc-500 text-[9px]">
-          <span>Drag dot to position</span>
-          <span>•</span>
-          <span>Scroll wheel: Distance</span>
-        </div>
-      </div>
+    <div className="w-full h-full relative select-none flex flex-col overflow-hidden bg-transparent cursor-grab active:cursor-grabbing">
+      <Canvas
+        camera={{ fov: 40, near: 0.1, far: 100, position: [0, 2.4, 4.2] }}
+        gl={{ powerPreference: 'high-performance', antialias: true, alpha: true }}
+        className="w-full h-full"
+      >
+        <CameraRig viewMode={viewMode} isDragging={isDragging} />
+        <StudioLights />
+        <CenterHeadModel
+          azimuth={azimuth}
+          elevation={spatialParams.elevation ?? 0}
+          enabled={spatialParams.enabled}
+        />
+        <PolarRadarGrid />
+        <DraggableSourceDot
+          azimuth={azimuth}
+          distance={spatialParams.distance ?? 0}
+          elevation={spatialParams.elevation ?? 0}
+          setIsDragging={setIsDragging}
+        />
+      </Canvas>
     </div>
   );
 };

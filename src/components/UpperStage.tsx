@@ -97,10 +97,13 @@ export const UpperStage: React.FC = () => {
         </div>
 
         {/* Telemetry Readout Footer */}
-        <div className="flex items-center justify-between text-[10px] text-zinc-400 pt-1.5 border-t border-white/[0.06] z-10 font-mono tabular-nums">
+        <div className="flex items-center justify-between text-[10px] text-zinc-400 pt-1.5 border-t border-white/[0.06] z-10 font-mono tabular-nums whitespace-nowrap overflow-hidden">
           <div className="flex items-center space-x-2">
-            <span className={spatialParams.enabled ? 'text-sky-400 font-medium' : 'text-zinc-500'}>
-              {spatialParams.enabled ? `Az: ${degrees}°` : 'Bypassed'}
+            <span className="flex items-center space-x-1">
+              <span className={`w-1.5 h-1.5 rounded-full ${spatialParams.enabled ? 'bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.6)]' : 'bg-sky-400/70'}`} />
+              <span className="text-zinc-200 font-medium">
+                Az: {degrees}° ({getCardinal(degrees)})
+              </span>
             </span>
             <span className="text-white/20">•</span>
             <span className="text-amber-400 font-medium">
@@ -118,6 +121,12 @@ export const UpperStage: React.FC = () => {
             >
               Elev: {(spatialParams.elevation ?? 0) > 0.05 ? `+${Math.round(spatialParams.elevation * 100)}%` : (spatialParams.elevation ?? 0) < -0.05 ? `${Math.round(spatialParams.elevation * 100)}%` : '0%'}
             </span>
+          </div>
+
+          <div className="hidden lg:flex items-center space-x-1.5 text-[9px] text-zinc-500">
+            <span>Drag dot</span>
+            <span>•</span>
+            <span>Wheel: Dist</span>
           </div>
         </div>
       </div>
