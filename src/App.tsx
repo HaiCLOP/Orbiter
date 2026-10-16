@@ -41,20 +41,20 @@ export const App: React.FC = () => {
   }, [updateTick]);
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-[#0e1117] text-zinc-100 overflow-hidden font-sans select-none">
+    <div className="flex flex-col h-screen w-screen bg-transparent text-slate-100 overflow-hidden font-sans select-none relative">
       {/* Top Application Bar with Tab Navigation */}
       <TopNav />
 
       {/* Global Error Banner */}
       {error && (
-        <div className="bg-rose-950/80 border-b border-rose-800 px-4 py-2 flex items-center justify-between text-xs text-rose-200 z-50">
-          <div className="flex items-center space-x-2">
+        <div className="mx-3 mt-2 px-4 py-2.5 rounded-xl glass-card border-rose-500/40 bg-rose-950/40 flex items-center justify-between text-xs text-rose-200 z-50 shadow-[0_0_24px_rgba(244,63,94,0.25)] animate-in fade-in duration-200">
+          <div className="flex items-center space-x-2.5">
             <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-            <span>{error}</span>
+            <span className="font-medium">{error}</span>
           </div>
           <button
             onClick={clearError}
-            className="p-1 hover:bg-rose-900 rounded text-rose-300 transition-colors"
+            className="p-1 hover:bg-rose-900/60 rounded-lg text-rose-300 transition-colors cursor-pointer"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -67,7 +67,7 @@ export const App: React.FC = () => {
         <ProjectBrowser />
 
         {/* Center Workspace */}
-        <main className="flex-1 flex flex-col bg-[#0c0e14] overflow-hidden">
+        <main className="flex-1 flex flex-col bg-transparent overflow-hidden">
           {/* Active Workspace View Switch */}
           {activeTab === 'Spatial' && <SpatialView />}
           {activeTab === 'Effects' && <EffectsView />}

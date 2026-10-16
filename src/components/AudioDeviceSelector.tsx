@@ -49,19 +49,19 @@ export const AudioDeviceSelector: React.FC = () => {
           setIsOpen(!isOpen);
         }}
         title={`Active Audio Device: ${displayName}`}
-        className={`flex items-center space-x-1.5 px-2.5 py-1 rounded text-[11px] font-medium border transition-colors cursor-pointer select-none ${
+        className={`flex items-center space-x-1.5 px-3 py-1 rounded-xl text-[11px] font-medium transition-all cursor-pointer select-none border ${
           isHeadphone
-            ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/50'
-            : 'bg-[#181d28] border-[#262c3a] text-zinc-300 hover:bg-[#202534] hover:text-white'
+            ? 'glass-card border-emerald-500/40 bg-emerald-950/25 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.15)]'
+            : 'glass-card border-white/[0.1] text-slate-300 hover:text-white'
         }`}
       >
         {isHeadphone ? (
-          <Headphones className="w-3.5 h-3.5 text-emerald-400 shrink-0 animate-pulse" />
+          <Headphones className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
         ) : (
           <Volume2 className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
         )}
 
-        <span className="max-w-[130px] truncate text-left">{displayName}</span>
+        <span className="max-w-[130px] truncate text-left font-medium">{displayName}</span>
 
         <ChevronDown
           className={`w-3 h-3 opacity-60 transition-transform duration-200 shrink-0 ${
@@ -72,14 +72,14 @@ export const AudioDeviceSelector: React.FC = () => {
 
       {/* Dropdown Menu */}
       {isOpen && (
-        <div className="absolute right-0 mt-1.5 w-64 bg-[#121620] border border-[#2a3142] rounded-lg shadow-2xl z-50 py-1 overflow-hidden animate-in fade-in zoom-in-95 duration-100">
+        <div className="absolute right-0 mt-2 w-72 glass-panel rounded-2xl shadow-2xl z-50 py-1.5 overflow-hidden animate-in fade-in zoom-in-95 duration-150 border border-white/[0.15]">
           {/* Header */}
-          <div className="px-3 py-1.5 border-b border-[#222836] flex items-center justify-between text-[10px] text-zinc-400 uppercase font-mono tracking-wider">
-            <span>Output Device</span>
+          <div className="px-3.5 py-2 border-b border-white/[0.08] flex items-center justify-between text-[10px] text-slate-400 uppercase font-mono tracking-wider">
+            <span>Hardware Output</span>
             <button
               onClick={handleRefresh}
               title="Refresh devices"
-              className="p-1 hover:text-zinc-200 hover:bg-[#1c2230] rounded transition-colors cursor-pointer"
+              className="p-1 hover:text-white hover:bg-white/[0.08] rounded-lg transition-colors cursor-pointer"
             >
               <RefreshCw className={`w-3 h-3 ${isRefreshing ? 'animate-spin text-indigo-400' : ''}`} />
             </button>
@@ -88,7 +88,7 @@ export const AudioDeviceSelector: React.FC = () => {
           {/* Device List */}
           <div className="max-h-60 overflow-y-auto py-1">
             {audioDevices.length === 0 ? (
-              <div className="px-3 py-3 text-center text-xs text-zinc-500">
+              <div className="px-3.5 py-4 text-center text-xs text-slate-500">
                 No output devices detected
               </div>
             ) : (
@@ -99,35 +99,39 @@ export const AudioDeviceSelector: React.FC = () => {
                   <button
                     key={device.name}
                     onClick={() => handleSelect(device.name)}
-                    className={`w-full px-3 py-2 flex items-center justify-between text-left transition-colors cursor-pointer text-xs ${
+                    className={`w-full px-3.5 py-2 flex items-center justify-between text-left transition-all cursor-pointer text-xs ${
                       isSelected
-                        ? 'bg-indigo-600/20 text-indigo-200 font-medium'
-                        : 'text-zinc-300 hover:bg-[#1a1f2c] hover:text-white'
+                        ? 'bg-indigo-600/25 text-white font-medium border-l-2 border-indigo-400'
+                        : 'text-slate-300 hover:bg-white/[0.05] hover:text-white'
                     }`}
                   >
                     <div className="flex items-center space-x-2.5 min-w-0 mr-2">
                       {device.is_headphone ? (
-                        <Headphones
-                          className={`w-4 h-4 shrink-0 ${
-                            isSelected ? 'text-emerald-400' : 'text-zinc-400'
-                          }`}
-                        />
+                        <div className="w-6 h-6 rounded-lg glass-card flex items-center justify-center shrink-0 border-emerald-500/30">
+                          <Headphones
+                            className={`w-3.5 h-3.5 ${
+                              isSelected ? 'text-emerald-400' : 'text-slate-400'
+                            }`}
+                          />
+                        </div>
                       ) : (
-                        <Volume2
-                          className={`w-4 h-4 shrink-0 ${
-                            isSelected ? 'text-indigo-400' : 'text-zinc-400'
-                          }`}
-                        />
+                        <div className="w-6 h-6 rounded-lg glass-card flex items-center justify-center shrink-0 border-indigo-500/30">
+                          <Volume2
+                            className={`w-3.5 h-3.5 ${
+                              isSelected ? 'text-indigo-400' : 'text-slate-400'
+                            }`}
+                          />
+                        </div>
                       )}
 
                       <div className="min-w-0">
-                        <div className="truncate text-[12px]">{device.name}</div>
-                        <div className="flex items-center space-x-1.5 text-[10px] text-zinc-500">
+                        <div className="truncate text-[12px] font-medium">{device.name}</div>
+                        <div className="flex items-center space-x-1.5 text-[10px] text-slate-400 font-mono">
                           {device.is_headphone && (
-                            <span className="text-emerald-400/90 font-mono">Headphones</span>
+                            <span className="text-emerald-400/90">Binaural Mode</span>
                           )}
                           {device.is_default && (
-                            <span className="text-zinc-400">(System Default)</span>
+                            <span className="text-slate-500">(System Default)</span>
                           )}
                         </div>
                       </div>
