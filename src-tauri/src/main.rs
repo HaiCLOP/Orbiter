@@ -12,14 +12,18 @@ mod single_instance {
 
     pub fn ensure_single_instance() -> bool {
         unsafe {
-            let _handle = CreateMutexW(None, true, w!("Global\\OrbiterSingleInstanceMutex"));
+            let handle = CreateMutexW(None, true, w!("Local\\OrbiterSingleInstanceMutex"));
+            if handle.is_err() {
+                return true;
+            }
             if GetLastError() == ERROR_ALREADY_EXISTS {
                 let hwnd: HWND = FindWindowW(None, w!("Orbiter — 8D Spatial Audio Editor"));
                 if hwnd.0 != 0 {
                     let _ = ShowWindow(hwnd, SW_RESTORE);
                     let _ = SetForegroundWindow(hwnd);
+                    return false;
                 }
-                return false;
+                return true;
             }
         }
         true
