@@ -9,6 +9,9 @@ use crate::engine::reverb::{ReverbBridge, ReverbStage};
 use crate::engine::spatial_3d::{DistanceStage, ElevationStage, Spatial3DBridge};
 use crate::engine::Panner;
 use crate::models::{AudioBuffer, DynamicsParams, EqParams, ReverbParams, Spatial8DParams};
+use crate::timeline::{
+    create_timeline_preset, AutomationLaneId, Keyframe, TimelineBridge, TimelineState,
+};
 
 const NO_SEEK: u64 = u64::MAX;
 
@@ -201,6 +204,9 @@ pub struct AudioPlayer {
     // Master Dynamics Bridge (Limiter + Soft Clipper + Input Normalize)
     dynamics_bridge: Arc<DynamicsBridge>,
     normalize_gain: Arc<AtomicU32>, // f32 bits
+
+    // Multi-Lane Keyframe Automation Bridge
+    timeline_bridge: Arc<TimelineBridge>,
 }
 
 impl AudioPlayer {
@@ -253,6 +259,7 @@ impl AudioPlayer {
         let eq_bridge = Arc::new(EqBridge::new(sample_rate as f32));
         let dynamics_bridge = Arc::new(DynamicsBridge::new());
         let normalize_gain = Arc::new(AtomicU32::new(1.0f32.to_bits()));
+        let timeline_bridge = Arc::new(TimelineBridge::new());
 
         // Clones for real-time audio callback thread
         let cb_buffer_slot = Arc::clone(&buffer_slot);
@@ -269,6 +276,7 @@ impl AudioPlayer {
         let cb_eq_bridge = Arc::clone(&eq_bridge);
         let cb_dynamics_bridge = Arc::clone(&dynamics_bridge);
         let cb_normalize_gain = Arc::clone(&normalize_gain);
+        let cb_timeline_bridge = Arc::clone(&timeline_bridge);
 
         let dev_rate = sample_rate as f64;
         let mut fractional_playhead: f64 = 0.0;
@@ -282,6 +290,16 @@ impl AudioPlayer {
         let mut local_eq_version: u32 = 0;
         let mut dynamics_stage = DynamicsStage::new(sample_rate as f32);
         let mut local_dynamics_version: u32 = 0;
+        let mut local_timeline = {
+            let g = timeline_bridge.timeline.read().unwrap();
+            Arc::clone(&*g)
+        };
+        let mut local_timeline_version: u32 = 1;
+        let mut prev_pan_automated = false;
+        let mut prev_elev_automated = false;
+        let mut prev_dist_automated = false;
+        let mut prev_rev_automated = false;
+        let mut prev_vol_automated = false;
         let mut current_norm_gain: f32 = 1.0;
         let norm_smooth_alpha = 1.0 - (-1.0 / (0.025 * sample_rate as f32)).exp();
 
@@ -411,13 +429,22 @@ impl AudioPlayer {
                         1.0
                     };
 
+                    // 6. Check for timeline automation updates
+                    let cur_tl_ver = cb_timeline_bridge.version.load(Ordering::Acquire);
+                    if cur_tl_ver != local_timeline_version {
+                        if let Ok(guard) = cb_timeline_bridge.timeline.try_read() {
+                            local_timeline = Arc::clone(&*guard);
+                            local_timeline_version = cur_tl_ver;
+                        }
+                    }
+
                     let src_samples = &audio_buf.samples;
                     let src_rate = audio_buf.sample_rate as f64;
                     let total_src_frames = audio_buf.total_frames();
                     let rate_ratio = src_rate / dev_rate;
                     let out_channels = channels as usize;
 
-                    // 6. Fill hardware output buffer
+                    // 7. Fill hardware output buffer
                     for frame_chunk in output_data.chunks_mut(out_channels) {
                         let cur_frame_idx = fractional_playhead.floor() as usize;
 
@@ -440,6 +467,49 @@ impl AudioPlayer {
 
                         let out_l = cur_l + alpha * (next_l - cur_l);
                         let out_r = cur_r + alpha * (next_r - cur_r);
+
+                        // Automation lane evaluations with click-free fallback to manual controls
+                        let t_sec = fractional_playhead / src_rate;
+
+                        if let Some(pan_val) = local_timeline.pan.evaluate(t_sec) {
+                            panner.set_azimuth_override(Some(pan_val * std::f32::consts::PI));
+                            prev_pan_automated = true;
+                        } else if prev_pan_automated {
+                            panner.set_azimuth_override(None);
+                            prev_pan_automated = false;
+                        }
+
+                        if let Some(elev_val) = local_timeline.elevation.evaluate(t_sec) {
+                            elevation_stage.set_elevation(elev_val);
+                            prev_elev_automated = true;
+                        } else if prev_elev_automated {
+                            elevation_stage.set_elevation(cb_spatial_3d_bridge.get_elevation());
+                            prev_elev_automated = false;
+                        }
+
+                        if let Some(dist_val) = local_timeline.distance.evaluate(t_sec) {
+                            distance_stage.set_distance(dist_val);
+                            prev_dist_automated = true;
+                        } else if prev_dist_automated {
+                            distance_stage.set_distance(cb_spatial_3d_bridge.get_distance());
+                            prev_dist_automated = false;
+                        }
+
+                        if let Some(rev_amount) = local_timeline.reverb.evaluate(t_sec) {
+                            reverb_stage.set_amount(rev_amount);
+                            prev_rev_automated = true;
+                        } else if prev_rev_automated {
+                            reverb_stage.set_amount(cb_reverb_bridge.get_params().amount);
+                            prev_rev_automated = false;
+                        }
+
+                        if let Some(vol_val) = local_timeline.volume.evaluate(t_sec) {
+                            eq_stage.set_target_volume(vol_val);
+                            prev_vol_automated = true;
+                        } else if prev_vol_automated {
+                            eq_stage.set_target_volume(f32::from_bits(cb_eq_bridge.master_volume.load(Ordering::Acquire)));
+                            prev_vol_automated = false;
+                        }
 
                         // Click-free exponential smoothing for normalize gain switch (~25ms)
                         current_norm_gain += norm_smooth_alpha * (target_norm_gain - current_norm_gain);
@@ -479,8 +549,10 @@ impl AudioPlayer {
                         fractional_playhead += rate_ratio;
                     }
 
-                    // Store current frame position and LFO azimuth for UI telemetry
-                    cb_playhead.store(fractional_playhead as usize, Ordering::Release);
+                    // Compensate playhead telemetry for master limiter's lookahead delay
+                    let lookahead_src = dynamics_stage.lookahead_samples() as f64 * rate_ratio;
+                    let audible_playhead = (fractional_playhead - lookahead_src).max(0.0);
+                    cb_playhead.store(audible_playhead as usize, Ordering::Release);
                     cb_current_azimuth.store(panner.current_azimuth().to_bits(), Ordering::Release);
                 },
                 move |err| {
@@ -510,6 +582,7 @@ impl AudioPlayer {
             eq_bridge,
             dynamics_bridge,
             normalize_gain,
+            timeline_bridge,
         })
     }
 
@@ -666,11 +739,87 @@ impl AudioPlayer {
     pub fn device_sample_rate(&self) -> u32 {
         self.device_sample_rate
     }
+
+    /// Returns the active timeline state.
+    pub fn get_timeline(&self) -> TimelineState {
+        self.timeline_bridge.get_state()
+    }
+
+    /// Publishes a complete timeline state update.
+    pub fn set_timeline(&self, state: TimelineState) {
+        self.timeline_bridge.publish(state);
+    }
+
+    /// Adds or replaces a keyframe in a specific lane.
+    pub fn add_keyframe(&self, lane_id: AutomationLaneId, keyframe: Keyframe) -> Result<TimelineState, String> {
+        let mut state = self.timeline_bridge.get_state();
+        let lane = state.lanes.iter_mut().find(|l| l.id == lane_id)
+            .ok_or_else(|| format!("Lane {:?} not found", lane_id))?;
+        lane.keyframes.retain(|k| (k.time - keyframe.time).abs() > 0.001 && k.id != keyframe.id);
+        lane.keyframes.push(keyframe);
+        lane.keyframes.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap_or(std::cmp::Ordering::Equal));
+        self.timeline_bridge.publish(state.clone());
+        Ok(state)
+    }
+
+    /// Updates an existing keyframe in a specific lane.
+    pub fn update_keyframe(&self, lane_id: AutomationLaneId, keyframe: Keyframe) -> Result<TimelineState, String> {
+        let mut state = self.timeline_bridge.get_state();
+        let lane = state.lanes.iter_mut().find(|l| l.id == lane_id)
+            .ok_or_else(|| format!("Lane {:?} not found", lane_id))?;
+        if let Some(kf) = lane.keyframes.iter_mut().find(|k| k.id == keyframe.id) {
+            *kf = keyframe;
+        } else {
+            return Err(format!("Keyframe {} not found in lane {:?}", keyframe.id, lane_id));
+        }
+        lane.keyframes.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap_or(std::cmp::Ordering::Equal));
+        self.timeline_bridge.publish(state.clone());
+        Ok(state)
+    }
+
+    /// Removes a keyframe by ID from a specific lane.
+    pub fn remove_keyframe(&self, lane_id: AutomationLaneId, keyframe_id: &str) -> Result<TimelineState, String> {
+        let mut state = self.timeline_bridge.get_state();
+        let lane = state.lanes.iter_mut().find(|l| l.id == lane_id)
+            .ok_or_else(|| format!("Lane {:?} not found", lane_id))?;
+        lane.keyframes.retain(|k| k.id != keyframe_id);
+        self.timeline_bridge.publish(state.clone());
+        Ok(state)
+    }
+
+    /// Clears all keyframes from a specific lane.
+    pub fn clear_lane(&self, lane_id: AutomationLaneId) -> Result<TimelineState, String> {
+        let mut state = self.timeline_bridge.get_state();
+        let lane = state.lanes.iter_mut().find(|l| l.id == lane_id)
+            .ok_or_else(|| format!("Lane {:?} not found", lane_id))?;
+        lane.keyframes.clear();
+        self.timeline_bridge.publish(state.clone());
+        Ok(state)
+    }
+
+    /// Toggles automation enabled state for a specific lane.
+    pub fn set_lane_enabled(&self, lane_id: AutomationLaneId, enabled: bool) -> Result<TimelineState, String> {
+        let mut state = self.timeline_bridge.get_state();
+        let lane = state.lanes.iter_mut().find(|l| l.id == lane_id)
+            .ok_or_else(|| format!("Lane {:?} not found", lane_id))?;
+        lane.enabled = enabled;
+        self.timeline_bridge.publish(state.clone());
+        Ok(state)
+    }
+
+    /// Generates and loads a built-in timeline preset.
+    pub fn load_timeline_preset(&self, preset_name: &str, duration: f64) -> Result<TimelineState, String> {
+        let preset = create_timeline_preset(preset_name, duration)
+            .ok_or_else(|| format!("Unknown preset '{preset_name}'"))?;
+        self.timeline_bridge.publish(preset.clone());
+        Ok(preset)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::timeline::CurveType;
 
     #[test]
     fn test_eq_bridge_initialization_and_update() {
@@ -750,5 +899,27 @@ mod tests {
         let retrieved = bridge.get_params();
         assert_eq!(retrieved, new_params);
         assert!(bridge.version.load(Ordering::Acquire) > 1);
+    }
+
+    #[test]
+    fn test_timeline_bridge_integration() {
+        let bridge = Arc::new(TimelineBridge::new());
+        assert_eq!(bridge.version.load(Ordering::Acquire), 1);
+        let mut state = bridge.get_state();
+        assert_eq!(state.lanes.len(), 5);
+
+        // Add a keyframe to Pan lane
+        let pan_lane = state.lanes.iter_mut().find(|l| l.id == AutomationLaneId::Pan).unwrap();
+        pan_lane.keyframes.push(Keyframe {
+            id: "kf1".into(),
+            time: 1.0,
+            value: 0.5,
+            curve: CurveType::Linear,
+        });
+        bridge.publish(state);
+        assert_eq!(bridge.version.load(Ordering::Acquire), 2);
+
+        let active = bridge.timeline.read().unwrap();
+        assert_eq!(active.pan.evaluate(1.0), Some(0.5));
     }
 }

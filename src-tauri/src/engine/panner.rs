@@ -39,6 +39,9 @@ pub struct Panner {
     target_enabled: f32,
     current_enabled: f32,
 
+    // Azimuth override (used when Pan lane is automated by keyframes)
+    azimuth_override: Option<f32>,
+
     // Smoothing coefficient per sample
     smooth_alpha: f32,
 }
@@ -67,6 +70,7 @@ impl Panner {
             current_intensity: 0.8,
             target_enabled: 0.0,
             current_enabled: 0.0,
+            azimuth_override: None,
             smooth_alpha,
         }
     }
@@ -100,6 +104,13 @@ impl Panner {
         self.phase = phase.rem_euclid(TWO_PI);
     }
 
+    /// Sets an explicit azimuth angle override in radians.
+    /// When Some(angle), LFO rotation speed is bypassed and azimuth is driven directly by keyframes.
+    /// When None, LFO rotation speed resumes normal operation.
+    pub fn set_azimuth_override(&mut self, azimuth_rad: Option<f32>) {
+        self.azimuth_override = azimuth_rad;
+    }
+
     /// Processes a single stereo frame (in_l, in_r) through the 8D spatializer.
     ///
     /// Inputs:
@@ -110,22 +121,37 @@ impl Panner {
     ///
     /// Invariants:
     /// - Zero allocations.
-    /// - When `current_enabled == 0.0`, output is bit-exact to input.
+    /// - When `current_enabled == 0.0` and no azimuth override, output is bit-exact to input.
     pub fn process_sample(&mut self, in_l: f32, in_r: f32) -> (f32, f32) {
+        // If an azimuth override is present from automation, automatically enable spatializer
+        let effective_target_enabled = if self.azimuth_override.is_some() {
+            1.0
+        } else {
+            self.target_enabled
+        };
+
         // 1. Update parameter smoothers (1-pole lowpass)
         self.current_speed += self.smooth_alpha * (self.target_speed - self.current_speed);
         self.current_intensity += self.smooth_alpha * (self.target_intensity - self.current_intensity);
-        self.current_enabled += self.smooth_alpha * (self.target_enabled - self.current_enabled);
+        self.current_enabled += self.smooth_alpha * (effective_target_enabled - self.current_enabled);
 
         // Fast path: if completely disabled and faded out, pass through dry signal
-        if self.current_enabled < 0.0001 && self.target_enabled == 0.0 {
+        if self.current_enabled < 0.0001 && effective_target_enabled == 0.0 {
             return (in_l, in_r);
         }
 
-        // 2. Advance LFO phase
-        let phase_step = TWO_PI * self.current_speed / self.sample_rate;
-        self.phase = (self.phase + phase_step).rem_euclid(TWO_PI);
-        let theta = self.phase; // 0 = Front, PI/2 = Right, PI = Back, 3*PI/2 = Left
+        // 2. Determine azimuth angle theta
+        let theta = if let Some(override_azimuth) = self.azimuth_override {
+            // When azimuth is automated, bypass LFO phase advancement
+            let target_theta = override_azimuth.rem_euclid(TWO_PI);
+            self.phase = target_theta;
+            target_theta
+        } else {
+            // Manual / free-running LFO rotation
+            let phase_step = TWO_PI * self.current_speed / self.sample_rate;
+            self.phase = (self.phase + phase_step).rem_euclid(TWO_PI);
+            self.phase
+        };
 
         // 3. Write input samples to circular delay lines
         self.delay_line_l[self.write_idx] = in_l;

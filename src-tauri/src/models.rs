@@ -184,4 +184,7 @@ pub struct PlaybackTick {
     pub is_playing: bool,
 }
 
+pub use crate::timeline::{AutomationLane, AutomationLaneId, CurveType, Keyframe, TimelineState};
+
+
 

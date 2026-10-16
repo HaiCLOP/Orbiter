@@ -5,6 +5,7 @@ use tauri_plugin_dialog::DialogExt;
 use crate::decode::{decode_audio_file, generate_waveform_peaks};
 use crate::models::{DynamicsParams, EqParams, ReverbParams, Spatial8DParams, TrackInfo};
 use crate::state::AppState;
+use crate::timeline::{AutomationLaneId, Keyframe, TimelineState};
 
 /// Opens a native desktop file dialog to pick an audio file.
 ///
@@ -323,6 +324,110 @@ pub fn get_dynamics_params(state: State<'_, AppState>) -> Result<DynamicsParams,
         Ok(player.get_dynamics_params())
     } else {
         Ok(DynamicsParams::default())
+    }
+}
+
+/// Retrieves the complete active timeline state with all automation lanes and keyframes.
+#[tauri::command]
+pub fn get_timeline(state: State<'_, AppState>) -> Result<TimelineState, String> {
+    if let Some(player) = &state.player {
+        Ok(player.get_timeline())
+    } else {
+        Ok(TimelineState::default())
+    }
+}
+
+/// Publishes a full timeline state replacement.
+#[tauri::command]
+pub fn set_timeline(timeline: TimelineState, state: State<'_, AppState>) -> Result<(), String> {
+    if let Some(player) = &state.player {
+        player.set_timeline(timeline);
+        Ok(())
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
+}
+
+/// Adds or updates a keyframe in a specific automation lane.
+#[tauri::command]
+pub fn add_keyframe(
+    lane: AutomationLaneId,
+    keyframe: Keyframe,
+    state: State<'_, AppState>,
+) -> Result<TimelineState, String> {
+    if let Some(player) = &state.player {
+        player.add_keyframe(lane, keyframe)
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
+}
+
+/// Updates an existing keyframe in a specific automation lane.
+#[tauri::command]
+pub fn update_keyframe(
+    lane: AutomationLaneId,
+    keyframe: Keyframe,
+    state: State<'_, AppState>,
+) -> Result<TimelineState, String> {
+    if let Some(player) = &state.player {
+        player.update_keyframe(lane, keyframe)
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
+}
+
+/// Removes a keyframe from a lane by its unique ID.
+#[tauri::command]
+pub fn remove_keyframe(
+    lane: AutomationLaneId,
+    keyframe_id: String,
+    state: State<'_, AppState>,
+) -> Result<TimelineState, String> {
+    if let Some(player) = &state.player {
+        player.remove_keyframe(lane, &keyframe_id)
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
+}
+
+/// Clears all keyframes from an automation lane.
+#[tauri::command]
+pub fn clear_lane(
+    lane: AutomationLaneId,
+    state: State<'_, AppState>,
+) -> Result<TimelineState, String> {
+    if let Some(player) = &state.player {
+        player.clear_lane(lane)
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
+}
+
+/// Toggles automation enabled/bypass state for an individual lane.
+#[tauri::command]
+pub fn set_lane_enabled(
+    lane: AutomationLaneId,
+    enabled: bool,
+    state: State<'_, AppState>,
+) -> Result<TimelineState, String> {
+    if let Some(player) = &state.player {
+        player.set_lane_enabled(lane, enabled)
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
+}
+
+/// Loads a built-in orbit automation preset.
+#[tauri::command]
+pub fn load_timeline_preset(
+    preset_name: String,
+    duration: f64,
+    state: State<'_, AppState>,
+) -> Result<TimelineState, String> {
+    if let Some(player) = &state.player {
+        player.load_timeline_preset(&preset_name, duration)
+    } else {
+        Err("Audio player engine is unavailable".to_string())
     }
 }
 

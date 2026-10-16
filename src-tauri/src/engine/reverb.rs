@@ -128,6 +128,12 @@ impl ReverbStage {
         self.distance = distance.clamp(0.0, 1.0);
     }
 
+    /// Sets the target wet mix amount [0.0, 1.0].
+    #[inline]
+    pub fn set_amount(&mut self, amount: f32) {
+        self.target_amount = amount.clamp(0.0, 1.0);
+    }
+
     /// Recomputes delay lengths and feedback loop gains based on room size and decay RT60.
     fn update_delay_lengths_and_gains(&mut self) {
         let sr_ratio = self.sample_rate / 48000.0;

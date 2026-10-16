@@ -3,6 +3,7 @@ pub mod decode;
 pub mod engine;
 pub mod models;
 pub mod state;
+pub mod timeline;
 
 use std::time::Duration;
 use tauri::{Emitter, Manager};
@@ -70,6 +71,14 @@ pub fn run() {
             commands::get_reverb_params,
             commands::set_dynamics_params,
             commands::get_dynamics_params,
+            commands::get_timeline,
+            commands::set_timeline,
+            commands::add_keyframe,
+            commands::update_keyframe,
+            commands::remove_keyframe,
+            commands::clear_lane,
+            commands::set_lane_enabled,
+            commands::load_timeline_preset,
         ])
         .run(tauri::generate_context!());
 
