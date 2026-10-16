@@ -3,7 +3,7 @@ import { UpperStage } from '../UpperStage';
 import { PresetsRibbon } from '../PresetsRibbon';
 import { WaveformPreview } from '../WaveformPreview';
 import { useTrackStore } from '../../store/trackStore';
-import { Music, Sparkles } from 'lucide-react';
+import { Music, FolderOpen } from 'lucide-react';
 
 export const SpatialView: React.FC = () => {
   const { loaded, openAndLoadTrack } = useTrackStore();
@@ -16,54 +16,51 @@ export const SpatialView: React.FC = () => {
       {/* Trajectory Presets Ribbon */}
       <PresetsRibbon />
 
-      {/* Waveform Tab Header: Frosted Glass Ribbon */}
-      <div className="h-8 glass-panel mx-3 px-4 rounded-xl flex items-center justify-between text-[11px] text-slate-400 select-none shadow-sm">
-        <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-1.5 text-cyan-300 font-bold tracking-tight">
-            <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(6,182,212,0.8)] animate-pulse" />
+      {/* Waveform Tab Header */}
+      <div className="h-8 glass-panel mx-3 px-3.5 rounded-xl flex items-center justify-between text-[11px] text-zinc-400 select-none">
+        <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-1.5 text-zinc-200 font-semibold tracking-tight">
+            <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
             <span className="text-[10px] uppercase tracking-wider">
               Waveform Timeline
             </span>
           </div>
-          <span className="text-white/20">•</span>
-          <span className="text-slate-400 hover:text-slate-200 transition-colors cursor-pointer text-[10px] font-medium">
-            3D Spectrogram
+          <span className="text-white/10">•</span>
+          <span className="text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer text-[10px] font-medium">
+            Dual L/R Channels
           </span>
-          <span className="text-white/20">•</span>
-          <span className="text-slate-400 hover:text-slate-200 transition-colors cursor-pointer text-[10px] font-medium">
-            Phase Lissajous
+          <span className="text-white/10">•</span>
+          <span className="text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer text-[10px] font-medium">
+            Interpolated Scrubbing
           </span>
         </div>
 
-        <div className="flex items-center space-x-2 text-[10px] font-mono tabular-nums text-slate-400">
-          <span className="glass-pill px-2 py-0.5 rounded-full text-slate-300">
-            {loaded ? 'Dual L/R Audio Buffer (Stereo 2.0)' : 'Click "Open File" to load audio'}
+        <div className="flex items-center space-x-2 text-[10px] font-mono tabular-nums text-zinc-500">
+          <span className="glass-pill px-2 py-0.5 rounded-md text-zinc-400">
+            {loaded ? 'Dual Buffer (Stereo 2.0)' : 'Click "Open Track" to load audio'}
           </span>
         </div>
       </div>
 
       {/* Waveform Display Stage */}
-      <div className="flex-1 flex flex-col relative overflow-hidden m-3 mt-2 rounded-2xl glass-panel shadow-lg">
+      <div className="flex-1 flex flex-col relative overflow-hidden m-3 mt-2 rounded-2xl glass-panel">
         {!loaded ? (
           <div
             onClick={openAndLoadTrack}
             className="flex-1 flex flex-col items-center justify-center p-8 text-center cursor-pointer hover:bg-white/[0.02] transition-colors group select-none relative overflow-hidden"
           >
-            {/* Ambient Background Glow */}
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
-
-            <div className="w-16 h-16 rounded-3xl glass-card flex items-center justify-center text-slate-400 group-hover:text-cyan-400 group-hover:border-cyan-500/40 group-hover:scale-105 transition-all mb-3.5 shadow-2xl relative z-10">
-              <Music className="w-7 h-7" />
+            <div className="w-14 h-14 rounded-2xl glass-card flex items-center justify-center text-zinc-400 group-hover:text-white transition-all mb-3 shadow-xs">
+              <Music className="w-6 h-6" />
             </div>
-            <h3 className="text-sm font-bold text-slate-100 mb-1 relative z-10 tracking-tight">
-              No audio track loaded
+            <h3 className="text-sm font-semibold text-zinc-100 mb-1 tracking-tight">
+              No Audio Track Loaded
             </h3>
-            <p className="text-xs text-slate-400 max-w-sm mb-4 relative z-10">
-              Click anywhere or press "Open File" to import an MP3, WAV, FLAC, or AAC track into the 3D panner.
+            <p className="text-xs text-zinc-400 max-w-sm mb-3">
+              Open an MP3, WAV, FLAC, or AAC track to begin binaural spatial positioning.
             </p>
-            <div className="glass-pill px-3 py-1 rounded-full text-[11px] text-cyan-300 border-cyan-500/30 font-semibold shadow-xs flex items-center space-x-1.5 relative z-10">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Import Audio Track</span>
+            <div className="glass-pill px-3 py-1 rounded-md text-[11px] text-zinc-300 font-medium shadow-xs flex items-center space-x-1.5">
+              <FolderOpen className="w-3.5 h-3.5 text-zinc-400" />
+              <span>Select Audio File</span>
             </div>
           </div>
         ) : (

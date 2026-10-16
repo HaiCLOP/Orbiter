@@ -7,60 +7,83 @@ interface SpatialRadar3DProps {
   viewMode: '3D' | 'Top' | 'Front' | 'Side';
 }
 
+// Module-level GLTF cache so tab switching is instantaneous with zero network/file I/O
+let cachedGltfScene: THREE.Group | null = null;
+let gltfLoadingPromise: Promise<THREE.Group> | null = null;
+
+function loadOrGetGltf(): Promise<THREE.Group> {
+  if (cachedGltfScene) {
+    return Promise.resolve(cachedGltfScene.clone());
+  }
+  if (!gltfLoadingPromise) {
+    gltfLoadingPromise = new Promise((resolve, reject) => {
+      const loader = new GLTFLoader();
+      loader.load(
+        '/models/listener_head.glb',
+        (gltf) => {
+          cachedGltfScene = gltf.scene;
+          resolve(gltf.scene.clone());
+        },
+        undefined,
+        (err) => reject(err)
+      );
+    });
+  }
+  return gltfLoadingPromise.then((scene) => scene.clone());
+}
+
 export const SpatialRadar3D: React.FC<SpatialRadar3DProps> = ({ viewMode }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const { isPlaying, azimuth, spatialParams } = useTrackStore();
 
-  const visualAngleRef = useRef<number>(0);
-  const lastTimeRef = useRef<number>(performance.now());
-  const mouseRef = useRef<{ x: number; y: number; targetX: number; targetY: number }>({
-    x: 0,
-    y: 0,
-    targetX: 0,
-    targetY: 0,
-  });
+  // Dynamic references updated without restarting the WebGL engine or re-fetching GLB
+  const isPlayingRef = useRef<boolean>(isPlaying);
+  const azimuthRef = useRef<number>(azimuth);
+  const spatialParamsRef = useRef(spatialParams);
+  const viewModeRef = useRef<'3D' | 'Top' | 'Front' | 'Side'>(viewMode);
 
-  // Track azimuth from Rust engine
+  // Sync refs on props/store updates
   useEffect(() => {
-    visualAngleRef.current = azimuth;
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
+
+  useEffect(() => {
+    azimuthRef.current = azimuth;
   }, [azimuth]);
 
+  useEffect(() => {
+    spatialParamsRef.current = spatialParams;
+  }, [spatialParams]);
+
+  useEffect(() => {
+    viewModeRef.current = viewMode;
+  }, [viewMode]);
+
+  // Mount WebGL Engine ONCE
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    const width = container.clientWidth;
-    const height = container.clientHeight;
+    let width = container.clientWidth || 300;
+    let height = container.clientHeight || 200;
 
     // 1. Scene & Camera
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(40, width / height, 0.1, 100);
 
-    // Initial camera position
-    const setCameraForView = (mode: '3D' | 'Top' | 'Front' | 'Side') => {
-      switch (mode) {
-        case 'Top':
-          camera.position.set(0, 5.2, 0.01);
-          camera.lookAt(0, 0, 0);
-          break;
-        case 'Front':
-          camera.position.set(0, 0.2, 4.8);
-          camera.lookAt(0, 0, 0);
-          break;
-        case 'Side':
-          camera.position.set(4.8, 0.2, 0);
-          camera.lookAt(0, 0, 0);
-          break;
-        case '3D':
-        default:
-          camera.position.set(0, 2.6, 4.4);
-          camera.lookAt(0, 0.1, 0);
-          break;
-      }
+    const cameraTargets: Record<'3D' | 'Top' | 'Front' | 'Side', { pos: THREE.Vector3; look: THREE.Vector3 }> = {
+      '3D': { pos: new THREE.Vector3(0, 2.4, 4.2), look: new THREE.Vector3(0, 0.15, 0) },
+      'Top': { pos: new THREE.Vector3(0, 5.0, 0.01), look: new THREE.Vector3(0, 0, 0) },
+      'Front': { pos: new THREE.Vector3(0, 0.2, 4.6), look: new THREE.Vector3(0, 0.1, 0) },
+      'Side': { pos: new THREE.Vector3(4.6, 0.2, 0), look: new THREE.Vector3(0, 0.1, 0) },
     };
-    setCameraForView(viewMode);
 
-    // 2. High-Precision Renderer
+    const currentCamPos = cameraTargets[viewModeRef.current].pos.clone();
+    const currentCamLook = cameraTargets[viewModeRef.current].look.clone();
+    camera.position.copy(currentCamPos);
+    camera.lookAt(currentCamLook);
+
+    // 2. High-Performance Hardware WebGL Renderer
     const renderer = new THREE.WebGLRenderer({
       alpha: true,
       antialias: true,
@@ -72,230 +95,271 @@ export const SpatialRadar3D: React.FC<SpatialRadar3DProps> = ({ viewMode }) => {
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
 
-    // 3. Apple-Style Vibrant Cinematic Lighting
-    const ambientLight = new THREE.AmbientLight(0x1e1b4b, 1.2);
+    // 3. Apple Studio Lighting (Stable, Physical, No Strobing)
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
     scene.add(ambientLight);
 
-    const keyLight = new THREE.DirectionalLight(0xffffff, 2.5);
-    keyLight.position.set(3, 6, 4);
+    const keyLight = new THREE.DirectionalLight(0xfff8ee, 1.8);
+    keyLight.position.set(2.5, 4.5, 3.5);
     scene.add(keyLight);
 
-    // Glowing Cyan Rim Light
-    const cyanRim = new THREE.PointLight(0x06b6d4, 4.0, 10);
-    cyanRim.position.set(-3, 2, -2);
-    scene.add(cyanRim);
+    const fillLight = new THREE.DirectionalLight(0xcfd8dc, 0.85);
+    fillLight.position.set(-3, 2, 2);
+    scene.add(fillLight);
 
-    // Glowing Purple/Indigo Backlight
-    const purpleRim = new THREE.PointLight(0xa855f7, 3.5, 10);
-    purpleRim.position.set(3, 1, -3);
-    scene.add(purpleRim);
+    const rimLight = new THREE.DirectionalLight(0xe2e8f0, 1.4);
+    rimLight.position.set(0, 3, -3.5);
+    scene.add(rimLight);
 
-    // 4. Concentric Orbital Grid Rings in 3D
-    const ringsGroup = new THREE.Group();
-    const ringRadii = [0.8, 1.4, 2.0, 2.5];
-    ringRadii.forEach((r, idx) => {
-      const ringGeo = new THREE.RingGeometry(r - 0.008, r + 0.008, 64);
+    // 4. Subtle Apple Pro Audio Polar Grid
+    const gridGroup = new THREE.Group();
+    const radii = [0.9, 1.4, 1.9, 2.4];
+    radii.forEach((r, idx) => {
+      const ringGeo = new THREE.RingGeometry(r - 0.005, r + 0.005, 72);
       const ringMat = new THREE.MeshBasicMaterial({
-        color: idx === ringRadii.length - 1 ? 0x06b6d4 : 0xffffff,
+        color: idx === 1 ? 0x38bdf8 : 0xffffff,
         transparent: true,
-        opacity: idx === ringRadii.length - 1 ? 0.35 : 0.08,
+        opacity: idx === 1 ? 0.18 : 0.06,
         side: THREE.DoubleSide,
       });
       const ringMesh = new THREE.Mesh(ringGeo, ringMat);
       ringMesh.rotation.x = Math.PI / 2;
-      ringsGroup.add(ringMesh);
+      gridGroup.add(ringMesh);
     });
-    scene.add(ringsGroup);
 
-    // 5. Stylized 3D Listener Head (Procedural Fallback + GLTF Loader)
+    // Crosshair axes (Front/Back, Left/Right)
+    const crossMat = new THREE.LineBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.07,
+    });
+    const crossPoints = [
+      new THREE.Vector3(-2.4, 0, 0),
+      new THREE.Vector3(2.4, 0, 0),
+      new THREE.Vector3(0, 0, -2.4),
+      new THREE.Vector3(0, 0, 2.4),
+    ];
+    const crossGeo = new THREE.BufferGeometry().setFromPoints(crossPoints);
+    const crossLines = new THREE.LineSegments(crossGeo, crossMat);
+    gridGroup.add(crossLines);
+    scene.add(gridGroup);
+
+    // 5. Stylized Head & Headphones Container
     const headGroup = new THREE.Group();
     scene.add(headGroup);
 
-    // Build procedural fallback immediately so canvas is never empty
-    const fallbackMat = new THREE.MeshStandardMaterial({
-      color: 0x141824,
-      metalness: 0.85,
-      roughness: 0.25,
-    });
-    const fallbackHead = new THREE.Mesh(
-      new THREE.SphereGeometry(0.5, 32, 24),
-      fallbackMat
-    );
-    fallbackHead.scale.set(0.85, 1.15, 1.0);
-    headGroup.add(fallbackHead);
-
-    // Fallback headphones
-    const hpMat = new THREE.MeshStandardMaterial({
-      color: 0x1e2538,
-      metalness: 0.95,
-      roughness: 0.15,
+    // Apple Space Gray / Obsidian Mannequin Materials
+    const headMat = new THREE.MeshStandardMaterial({
+      color: 0x16181f,
+      metalness: 0.65,
+      roughness: 0.35,
     });
 
-    const leftCup = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.12, 24), hpMat);
+    const hpCupMat = new THREE.MeshStandardMaterial({
+      color: 0x242732,
+      metalness: 0.88,
+      roughness: 0.18,
+    });
+
+    const cushionMat = new THREE.MeshStandardMaterial({
+      color: 0x121318,
+      metalness: 0.1,
+      roughness: 0.85,
+    });
+
+    // Procedural Fallback Mannequin (Mounted synchronously while GLTF is ready)
+    const fallbackMesh = new THREE.Group();
+    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.48, 36, 28), headMat);
+    skull.scale.set(0.85, 1.15, 1.0);
+    fallbackMesh.add(skull);
+
+    // Ear cups
+    const leftCup = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.12, 28), hpCupMat);
     leftCup.rotation.z = Math.PI / 2;
-    leftCup.position.set(-0.48, 0, 0);
-    headGroup.add(leftCup);
+    leftCup.position.set(-0.46, 0.02, 0);
+    fallbackMesh.add(leftCup);
 
-    const rightCup = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.12, 24), hpMat);
+    const leftCushion = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.05, 16, 28), cushionMat);
+    leftCushion.rotation.y = Math.PI / 2;
+    leftCushion.position.set(-0.41, 0.02, 0);
+    fallbackMesh.add(leftCushion);
+
+    const rightCup = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.12, 28), hpCupMat);
     rightCup.rotation.z = Math.PI / 2;
-    rightCup.position.set(0.48, 0, 0);
-    headGroup.add(rightCup);
+    rightCup.position.set(0.46, 0.02, 0);
+    fallbackMesh.add(rightCup);
 
-    const band = new THREE.Mesh(new THREE.TorusGeometry(0.52, 0.04, 16, 32, Math.PI), hpMat);
+    const rightCushion = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.05, 16, 28), cushionMat);
+    rightCushion.rotation.y = Math.PI / 2;
+    rightCushion.position.set(0.41, 0.02, 0);
+    fallbackMesh.add(rightCushion);
+
+    // Headband
+    const band = new THREE.Mesh(new THREE.TorusGeometry(0.51, 0.035, 16, 36, Math.PI), hpCupMat);
     band.position.set(0, 0.05, 0);
-    headGroup.add(band);
+    fallbackMesh.add(band);
 
-    // Load custom Blender-generated GLB model
-    const loader = new GLTFLoader();
-    loader.load(
-      '/models/listener_head.glb',
-      (gltf) => {
-        // Remove procedural fallback and insert Blender model
+    headGroup.add(fallbackMesh);
+
+    // Load or reuse cached GLB model seamlessly
+    loadOrGetGltf()
+      .then((model) => {
+        // Style imported meshes with Apple anodized titanium materials
+        model.traverse((child) => {
+          if ((child as THREE.Mesh).isMesh) {
+            const mesh = child as THREE.Mesh;
+            const name = mesh.name.toLowerCase();
+            if (name.includes('ear') || name.includes('cup') || name.includes('headphone')) {
+              mesh.material = hpCupMat;
+            } else if (name.includes('cushion') || name.includes('foam')) {
+              mesh.material = cushionMat;
+            } else {
+              mesh.material = headMat;
+            }
+          }
+        });
+        model.scale.set(0.55, 0.55, 0.55);
+        model.position.set(0, 0, 0);
+
+        // Swap out fallback cleanly
         while (headGroup.children.length > 0) {
           headGroup.remove(headGroup.children[0]);
         }
-        const model = gltf.scene;
-        model.scale.set(0.55, 0.55, 0.55);
-        model.position.set(0, 0, 0);
         headGroup.add(model);
-      },
-      undefined,
-      (err) => {
-        // Silently keep procedural fallback if network loading fails
-        console.warn('Using procedural 3D head fallback:', err);
-      }
-    );
+      })
+      .catch((e) => {
+        console.warn('Retaining procedural Apple mannequin head:', e);
+      });
 
-    // 6. Sound Source 3D Satellite & Aura
+    // 6. Sound Source Satellite (Steady, Crisp, Luminous Apple Accent)
     const satelliteGroup = new THREE.Group();
     scene.add(satelliteGroup);
 
-    // Core glowing sphere
-    const satGeo = new THREE.SphereGeometry(0.09, 32, 32);
+    // Primary Core Orb
+    const satGeo = new THREE.SphereGeometry(0.08, 32, 32);
     const satMat = new THREE.MeshStandardMaterial({
-      color: 0x06b6d4,
-      emissive: 0x06b6d4,
-      emissiveIntensity: 2.5,
-      roughness: 0.1,
+      color: 0x38bdf8,
+      emissive: 0x0284c7,
+      emissiveIntensity: 1.2,
+      roughness: 0.15,
+      metalness: 0.5,
     });
     const satMesh = new THREE.Mesh(satGeo, satMat);
     satelliteGroup.add(satMesh);
 
-    // Pulsing aura halo
-    const auraGeo = new THREE.SphereGeometry(0.22, 24, 24);
-    const auraMat = new THREE.MeshBasicMaterial({
-      color: 0x06b6d4,
+    // Refined translucent outer glass shell (no pulsing strobe)
+    const haloGeo = new THREE.SphereGeometry(0.14, 24, 24);
+    const haloMat = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
       transparent: true,
-      opacity: 0.25,
-      wireframe: true,
+      opacity: 0.16,
     });
-    const auraMesh = new THREE.Mesh(auraGeo, auraMat);
-    satelliteGroup.add(auraMesh);
+    const haloMesh = new THREE.Mesh(haloGeo, haloMat);
+    satelliteGroup.add(haloMesh);
 
-    // Secondary contralateral echo dot (AirPods binaural cue reflection)
-    const echoGeo = new THREE.SphereGeometry(0.04, 16, 16);
+    // Binaural Contralateral Indicator (Small, subtle echo bead)
+    const echoGeo = new THREE.SphereGeometry(0.035, 16, 16);
     const echoMat = new THREE.MeshBasicMaterial({
-      color: 0xec4899,
+      color: 0x94a3b8,
       transparent: true,
-      opacity: 0.7,
+      opacity: 0.5,
     });
     const echoMesh = new THREE.Mesh(echoGeo, echoMat);
     scene.add(echoMesh);
 
-    // Orbit path ring (dynamic radius matching distance parameter)
-    const orbitPathGeo = new THREE.BufferGeometry();
-    const orbitPathPoints: THREE.Vector3[] = [];
-    const segments = 64;
+    // Dynamic Orbit Trajectory Hairline
+    const orbitPoints: THREE.Vector3[] = [];
+    const segments = 72;
     for (let i = 0; i <= segments; i++) {
       const theta = (i / segments) * Math.PI * 2;
-      orbitPathPoints.push(new THREE.Vector3(Math.cos(theta), 0, Math.sin(theta)));
+      orbitPoints.push(new THREE.Vector3(Math.cos(theta), 0, Math.sin(theta)));
     }
-    orbitPathGeo.setFromPoints(orbitPathPoints);
-    const orbitPathMat = new THREE.LineBasicMaterial({
-      color: 0x06b6d4,
+    const orbitGeo = new THREE.BufferGeometry().setFromPoints(orbitPoints);
+    const orbitMat = new THREE.LineBasicMaterial({
+      color: 0x38bdf8,
       transparent: true,
-      opacity: 0.35,
+      opacity: 0.28,
     });
-    const orbitPathLine = new THREE.Line(orbitPathGeo, orbitPathMat);
-    scene.add(orbitPathLine);
+    const orbitLine = new THREE.Line(orbitGeo, orbitMat);
+    scene.add(orbitLine);
 
-    // 7. Mouse tracking for subtle Apple-style interactive parallax
+    // 7. Interactive Apple-Style Parallax on Mouse Move
+    const mouse = { x: 0, y: 0, targetX: 0, targetY: 0 };
     const handleMouseMove = (e: MouseEvent) => {
       const rect = container.getBoundingClientRect();
-      const normX = (e.clientX - rect.left) / rect.width - 0.5;
-      const normY = (e.clientY - rect.top) / rect.height - 0.5;
-      mouseRef.current.targetX = normX * 0.4;
-      mouseRef.current.targetY = normY * 0.3;
+      const nx = (e.clientX - rect.left) / rect.width - 0.5;
+      const ny = (e.clientY - rect.top) / rect.height - 0.5;
+      mouse.targetX = nx * 0.35;
+      mouse.targetY = ny * 0.25;
     };
     container.addEventListener('mousemove', handleMouseMove);
 
-    // 8. 60/120 FPS Animation Loop
+    // 8. Rock-Solid 60/120 FPS Render Loop
     let animId: number;
+    let visualAngle = azimuthRef.current;
+    let lastTime = performance.now();
+
     const animate = (now: number) => {
-      const dt = (now - lastTimeRef.current) / 1000;
-      lastTimeRef.current = now;
+      const dt = Math.min((now - lastTime) / 1000, 0.1);
+      lastTime = now;
 
       // Smooth mouse parallax damping
-      mouseRef.current.x += (mouseRef.current.targetX - mouseRef.current.x) * 0.08;
-      mouseRef.current.y += (mouseRef.current.targetY - mouseRef.current.y) * 0.08;
+      mouse.x += (mouse.targetX - mouse.x) * 0.08;
+      mouse.y += (mouse.targetY - mouse.y) * 0.08;
 
-      if (viewMode === '3D') {
-        camera.position.x = mouseRef.current.x * 2.0;
-        camera.position.y = 2.6 - mouseRef.current.y * 1.5;
-        camera.lookAt(0, 0.1, 0);
+      // Fluid camera transition between view modes
+      const targetMode = viewModeRef.current;
+      const targetConfig = cameraTargets[targetMode];
+      currentCamPos.lerp(targetConfig.pos, 0.08);
+      currentCamLook.lerp(targetConfig.look, 0.08);
+
+      if (targetMode === '3D') {
+        camera.position.x = currentCamPos.x + mouse.x * 1.5;
+        camera.position.y = currentCamPos.y - mouse.y * 1.0;
+        camera.position.z = currentCamPos.z;
+      } else {
+        camera.position.copy(currentCamPos);
+      }
+      camera.lookAt(currentCamLook);
+
+      // Angle interpolation
+      const params = spatialParamsRef.current;
+      if (isPlayingRef.current && params.enabled) {
+        const delta = 2 * Math.PI * params.rotation_speed * dt;
+        visualAngle = (visualAngle + delta) % (2 * Math.PI);
+      } else {
+        // Damped blend toward latest rust audio azimuth
+        const diff = azimuthRef.current - visualAngle;
+        visualAngle += diff * 0.2;
       }
 
-      // Live angle progression
-      if (isPlaying && spatialParams.enabled) {
-        const delta = 2 * Math.PI * spatialParams.rotation_speed * dt;
-        visualAngleRef.current = (visualAngleRef.current + delta) % (2 * Math.PI);
-      } else if (!isPlaying) {
-        visualAngleRef.current = azimuth;
-      }
+      const dist = Math.max(0, Math.min(1, params.distance ?? 0));
+      const elev = Math.max(-1, Math.min(1, params.elevation ?? 0));
 
-      const currentAngle = visualAngleRef.current;
-      const dist = Math.max(0, Math.min(1, spatialParams.distance ?? 0));
-      const elev = Math.max(-1, Math.min(1, spatialParams.elevation ?? 0));
+      // Dynamic orbit distance radius: 0.9m to 2.2m
+      const orbitRadius = 0.9 + 1.3 * dist;
+      const elevY = elev * 0.65;
 
-      // Dynamic orbit distance radius: 0.9m to 2.3m
-      const orbitRadius = 0.9 + 1.4 * dist;
-      const elevY = elev * 0.75; // Elevation vertical displacement
-
-      // Dynamic satellite positioning in true 3D space
-      // Front is -Z, Right is +X
-      const satX = orbitRadius * Math.sin(currentAngle);
-      const satZ = -orbitRadius * Math.cos(currentAngle);
+      // Position sound source
+      const satX = orbitRadius * Math.sin(visualAngle);
+      const satZ = -orbitRadius * Math.cos(visualAngle);
       satelliteGroup.position.set(satX, elevY, satZ);
 
-      // Echo reflection point
-      const echoRadius = orbitRadius * 0.55;
-      echoMesh.position.set(-echoRadius * Math.sin(currentAngle), -elevY * 0.5, echoRadius * Math.cos(currentAngle));
+      // Position contralateral reflection
+      const echoRadius = orbitRadius * 0.6;
+      echoMesh.position.set(-echoRadius * Math.sin(visualAngle), -elevY * 0.4, echoRadius * Math.cos(visualAngle));
 
-      // Update dynamic orbit line scale & elevation
-      orbitPathLine.scale.set(orbitRadius, 1, orbitRadius);
-      orbitPathLine.position.y = elevY;
+      // Adjust dynamic orbit line scale & elevation
+      orbitLine.scale.set(orbitRadius, 1, orbitRadius);
+      orbitLine.position.y = elevY;
 
-      // Color dynamics based on elevation
-      let themeColor = 0x06b6d4; // Cyan (Neutral)
-      if (elev > 0.05) themeColor = 0x10b981; // Emerald (High)
-      else if (elev < -0.05) themeColor = 0xa855f7; // Purple (Low)
-
-      satMat.color.setHex(themeColor);
-      satMat.emissive.setHex(themeColor);
-      auraMat.color.setHex(themeColor);
-      orbitPathMat.color.setHex(themeColor);
-
-      // Pulsing aura animation
-      const pulseScale = 1 + 0.15 * Math.sin(now * 0.006);
-      auraMesh.scale.set(pulseScale, pulseScale, pulseScale);
-
-      // Head subtly looks toward the active satellite when playing
-      if (spatialParams.enabled) {
-        headGroup.rotation.y = -currentAngle * 0.12;
-        headGroup.rotation.x = -elev * 0.08;
+      // Subtle, refined head micro-tracking (Apple Spatial Audio behavior)
+      if (params.enabled) {
+        headGroup.rotation.y = THREE.MathUtils.lerp(headGroup.rotation.y, -visualAngle * 0.1, 0.08);
+        headGroup.rotation.x = THREE.MathUtils.lerp(headGroup.rotation.x, -elev * 0.06, 0.08);
       } else {
-        headGroup.rotation.y = 0;
-        headGroup.rotation.x = 0;
+        headGroup.rotation.y = THREE.MathUtils.lerp(headGroup.rotation.y, 0, 0.08);
+        headGroup.rotation.x = THREE.MathUtils.lerp(headGroup.rotation.x, 0, 0.08);
       }
 
       renderer.render(scene, camera);
@@ -304,14 +368,14 @@ export const SpatialRadar3D: React.FC<SpatialRadar3DProps> = ({ viewMode }) => {
 
     animId = requestAnimationFrame(animate);
 
-    // Auto-resize
+    // Auto-resize handler
     const handleResize = () => {
       if (!container) return;
-      const w = container.clientWidth;
-      const h = container.clientHeight;
-      camera.aspect = w / h;
+      width = container.clientWidth || 300;
+      height = container.clientHeight || 200;
+      camera.aspect = width / height;
       camera.updateProjectionMatrix();
-      renderer.setSize(w, h);
+      renderer.setSize(width, height);
     };
     window.addEventListener('resize', handleResize);
 
@@ -324,7 +388,7 @@ export const SpatialRadar3D: React.FC<SpatialRadar3DProps> = ({ viewMode }) => {
         container.removeChild(renderer.domElement);
       }
     };
-  }, [viewMode, isPlaying, spatialParams, azimuth]);
+  }, []); // Run ONCE on mount — eliminates all lag, flickering, and GLB reload storms!
 
   return (
     <div

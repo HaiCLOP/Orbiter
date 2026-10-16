@@ -4,7 +4,6 @@ import {
   ZoomIn,
   ZoomOut,
   Trash2,
-  Info,
   Layers,
   Eye,
   EyeOff,
@@ -644,11 +643,11 @@ export const GraphView: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-transparent select-none text-slate-200">
+    <div className="flex-1 flex flex-col overflow-hidden bg-transparent select-none text-zinc-200">
       {/* 1. Header Toolbar */}
-      <div className="glass-panel mx-3 mt-3 px-3.5 py-2 rounded-2xl flex items-center justify-between shadow-md">
+      <div className="glass-panel mx-3 mt-3 px-3 py-1.5 rounded-xl flex items-center justify-between">
         {/* Lane Selector Pills */}
-        <div className="flex items-center space-x-1.5">
+        <div className="flex items-center space-x-1">
           {(Object.keys(LANE_CONFIG) as AutomationLaneId[]).map((laneId) => {
             const cfg = LANE_CONFIG[laneId];
             const laneObj = timeline?.lanes.find((l) => l.id === laneId);
@@ -660,21 +659,20 @@ export const GraphView: React.FC = () => {
               <div
                 key={laneId}
                 onClick={() => setActiveLane(laneId)}
-                className={`flex items-center space-x-2 px-3 py-1 rounded-xl text-[11px] font-semibold cursor-pointer transition-all border ${
+                className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium cursor-pointer transition-all border ${
                   isSelected
-                    ? 'bg-white/[0.12] text-white border-white/[0.22] shadow-[0_2px_12px_rgba(0,0,0,0.3)] scale-[1.02]'
-                    : 'glass-card text-slate-400 hover:text-white border-white/[0.06] hover:border-white/[0.14]'
+                    ? 'bg-white/15 text-white border-white/20 shadow-xs'
+                    : 'glass-card text-zinc-400 hover:text-white border-white/[0.06]'
                 }`}
               >
                 <span
-                  className="w-2.5 h-2.5 rounded-full"
+                  className="w-2 h-2 rounded-full"
                   style={{
                     backgroundColor: isMuted ? '#64748b' : cfg.color,
-                    boxShadow: isSelected && !isMuted ? `0 0 10px ${cfg.color}` : 'none',
                   }}
                 />
                 <span className="tracking-tight">{cfg.name}</span>
-                <span className="text-[10px] text-slate-400 font-mono tabular-nums">({ptCount})</span>
+                <span className="text-[10px] text-zinc-500 font-mono tabular-nums">({ptCount})</span>
 
                 {/* Quick Toggle Mute/Bypass */}
                 <button
@@ -684,9 +682,9 @@ export const GraphView: React.FC = () => {
                     toggleLane(laneId);
                   }}
                   title={isMuted ? 'Lane Bypassed (Click to Enable)' : 'Lane Active (Click to Bypass)'}
-                  className="text-slate-400 hover:text-white ml-0.5 cursor-pointer"
+                  className="text-zinc-500 hover:text-white ml-0.5 cursor-pointer"
                 >
-                  {isMuted ? <EyeOff className="w-3 h-3 text-slate-500" /> : <Eye className="w-3 h-3" />}
+                  {isMuted ? <EyeOff className="w-3 h-3 text-zinc-600" /> : <Eye className="w-3 h-3" />}
                 </button>
               </div>
             );
@@ -694,16 +692,16 @@ export const GraphView: React.FC = () => {
         </div>
 
         {/* Tools: Snap, Grid, Zoom, Clear */}
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-1.5">
           {/* Snap toggle */}
           <button
             type="button"
             onClick={() => setSnapEnabled(!snapEnabled)}
             title={`Snap to Grid (${snapEnabled ? 'Enabled' : 'Disabled'})`}
-            className={`glass-pill px-2.5 py-1 rounded-xl text-[11px] font-semibold flex items-center space-x-1.5 transition-all cursor-pointer ${
+            className={`glass-pill px-2.5 py-1 rounded-lg text-[11px] font-medium flex items-center space-x-1.5 transition-all cursor-pointer ${
               snapEnabled
-                ? 'border-cyan-500/40 text-cyan-300 shadow-[0_0_10px_rgba(6,182,212,0.2)]'
-                : 'text-slate-400 hover:text-white'
+                ? 'bg-white/15 text-white border-white/20'
+                : 'text-zinc-400 hover:text-white'
             }`}
           >
             <Magnet className="w-3.5 h-3.5" />
@@ -714,26 +712,26 @@ export const GraphView: React.FC = () => {
           <select
             value={gridInterval}
             onChange={(e) => setGridInterval(parseFloat(e.target.value))}
-            className="glass-card border border-white/[0.1] text-slate-200 text-[10px] font-mono rounded-xl px-2 py-1 focus:outline-none cursor-pointer"
+            className="glass-card border border-white/[0.1] text-zinc-200 text-[10px] font-mono rounded-lg px-2 py-1 focus:outline-none cursor-pointer"
           >
-            <option value={0.1} className="bg-[#0f121a]">1/10s (0.10s)</option>
-            <option value={0.25} className="bg-[#0f121a]">1/4s (0.25s)</option>
-            <option value={0.5} className="bg-[#0f121a]">1/2s (0.50s)</option>
-            <option value={1.0} className="bg-[#0f121a]">1s (1.00s)</option>
-            <option value={2.0} className="bg-[#0f121a]">2s (2.00s)</option>
+            <option value={0.1} className="bg-[#12141a]">1/10s (0.10s)</option>
+            <option value={0.25} className="bg-[#12141a]">1/4s (0.25s)</option>
+            <option value={0.5} className="bg-[#12141a]">1/2s (0.50s)</option>
+            <option value={1.0} className="bg-[#12141a]">1s (1.00s)</option>
+            <option value={2.0} className="bg-[#12141a]">2s (2.00s)</option>
           </select>
 
           {/* Zoom In/Out */}
-          <div className="flex items-center glass-card border border-white/[0.1] rounded-xl px-1">
+          <div className="flex items-center glass-card border border-white/[0.1] rounded-lg px-1">
             <button
               type="button"
               onClick={() => setZoom(zoom * 0.8)}
               title="Zoom Out (Ctrl -)"
               className="p-1 hover:text-white cursor-pointer"
             >
-              <ZoomOut className="w-3.5 h-3.5 text-slate-400" />
+              <ZoomOut className="w-3.5 h-3.5 text-zinc-400" />
             </button>
-            <span className="text-[10px] font-mono tabular-nums px-1.5 text-slate-300 min-w-[48px] text-center font-bold">
+            <span className="text-[10px] font-mono tabular-nums px-1.5 text-zinc-300 min-w-[48px] text-center font-medium">
               {Math.round(zoom)}px/s
             </span>
             <button
@@ -742,7 +740,7 @@ export const GraphView: React.FC = () => {
               title="Zoom In (Ctrl +)"
               className="p-1 hover:text-white cursor-pointer"
             >
-              <ZoomIn className="w-3.5 h-3.5 text-slate-400" />
+              <ZoomIn className="w-3.5 h-3.5 text-zinc-400" />
             </button>
           </div>
 
@@ -757,16 +755,10 @@ export const GraphView: React.FC = () => {
             }}
             disabled={activeKeyframes.length === 0}
             title={`Clear ${laneConfig.name} keyframes`}
-            className="glass-pill p-1.5 rounded-xl hover:border-rose-500/40 text-slate-400 hover:text-rose-400 disabled:opacity-30 cursor-pointer active:scale-95"
+            className="glass-pill p-1.5 rounded-lg text-zinc-400 hover:text-rose-400 disabled:opacity-30 cursor-pointer active:scale-95"
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
-
-          {/* Step 7 Status Badge */}
-          <div className="glass-pill px-2.5 py-0.5 rounded-full text-[9px] font-mono text-cyan-300 border-cyan-500/30 font-bold shadow-[0_0_8px_rgba(6,182,212,0.15)] flex items-center space-x-1">
-            <Info className="w-2.5 h-2.5 text-cyan-400" />
-            <span>Active Automation</span>
-          </div>
         </div>
       </div>
 
@@ -774,7 +766,7 @@ export const GraphView: React.FC = () => {
       <div
         ref={containerRef}
         onWheel={handleWheel}
-        className="flex-1 relative overflow-hidden m-3 my-2 rounded-2xl glass-panel cursor-crosshair shadow-lg"
+        className="flex-1 relative overflow-hidden m-3 my-2 rounded-2xl glass-panel cursor-crosshair"
       >
         <canvas
           ref={canvasRef}
@@ -788,12 +780,12 @@ export const GraphView: React.FC = () => {
         {/* Empty state hint overlay */}
         {activeKeyframes.length === 0 && (
           <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-            <div className="glass-card rounded-2xl p-6 text-center max-w-sm border border-white/[0.12] shadow-2xl relative overflow-hidden">
-              <div className="w-12 h-12 rounded-2xl glass-card mx-auto mb-3 flex items-center justify-center text-cyan-400 shadow-lg border-cyan-500/30">
+            <div className="glass-card rounded-2xl p-6 text-center max-w-sm border border-white/[0.08] shadow-lg relative overflow-hidden">
+              <div className="w-12 h-12 rounded-xl glass-card mx-auto mb-3 flex items-center justify-center text-zinc-400">
                 <Layers className="w-6 h-6" />
               </div>
-              <div className="text-xs font-bold text-slate-100 tracking-tight">No Keyframes on {laneConfig.name}</div>
-              <div className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
+              <div className="text-xs font-semibold text-zinc-100 tracking-tight">No Keyframes on {laneConfig.name}</div>
+              <div className="text-[11px] text-zinc-400 mt-1 leading-relaxed">
                 Double-click anywhere on the graph to place a keyframe, or select an Orbit Trajectory Preset from the top ribbon.
               </div>
             </div>
@@ -802,17 +794,17 @@ export const GraphView: React.FC = () => {
       </div>
 
       {/* 3. Footer Bar: Status & Key Hints */}
-      <div className="h-7 glass-panel mx-3 mb-2 px-4 rounded-xl flex items-center justify-between text-[10px] font-mono tabular-nums text-slate-400 shadow-sm">
-        <div className="flex items-center space-x-4">
-          <span>Lane: <strong className="text-slate-100">{laneConfig.name}</strong></span>
-          <span className="text-white/20">•</span>
-          <span>Keyframes: <strong className="text-cyan-400 font-bold">{activeKeyframes.length}</strong></span>
+      <div className="h-7 glass-panel mx-3 mb-2 px-3.5 rounded-xl flex items-center justify-between text-[10px] font-mono tabular-nums text-zinc-400">
+        <div className="flex items-center space-x-3">
+          <span>Lane: <strong className="text-zinc-200">{laneConfig.name}</strong></span>
+          <span className="text-white/10">•</span>
+          <span>Keyframes: <strong className="text-zinc-200 font-medium">{activeKeyframes.length}</strong></span>
           {mouseCoord && (
             <>
-              <span className="text-white/20">•</span>
+              <span className="text-white/10">•</span>
               <span>
-                Cursor: <span className="text-cyan-300 font-bold">{mouseCoord.time.toFixed(2)}s</span> /{' '}
-                <span className="text-amber-300 font-bold">
+                Cursor: <span className="text-zinc-200 font-medium">{mouseCoord.time.toFixed(2)}s</span> /{' '}
+                <span className="text-zinc-200 font-medium">
                   {activeLaneId === 'pan'
                     ? `${(mouseCoord.value * 180).toFixed(0)}°`
                     : mouseCoord.value.toFixed(2)}
@@ -822,7 +814,7 @@ export const GraphView: React.FC = () => {
           )}
         </div>
 
-        <div className="flex items-center space-x-3 text-slate-500">
+        <div className="flex items-center space-x-2.5 text-zinc-500">
           <span>Double-click: Add</span>
           <span>•</span>
           <span>Click: Select</span>

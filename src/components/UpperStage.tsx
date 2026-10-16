@@ -41,33 +41,30 @@ export const UpperStage: React.FC = () => {
   const degrees = Math.round((visualAngleRef.current * 180) / Math.PI) % 360;
 
   return (
-    <div className="h-68 grid grid-cols-12 gap-3 p-3 bg-transparent select-none">
-      {/* Left: 3D Holographic Spatial Radar */}
-      <div className="col-span-5 glass-panel rounded-2xl p-3.5 flex flex-col justify-between relative overflow-hidden shadow-xl">
-        {/* Ambient Optics Glow */}
-        <div className="absolute -top-16 -left-16 w-56 h-56 bg-cyan-500/15 rounded-full blur-3xl pointer-events-none" />
-
+    <div className="h-72 grid grid-cols-12 gap-3 p-3 bg-transparent select-none">
+      {/* Left: Apple Spatial Radar Stage */}
+      <div className="col-span-5 glass-panel rounded-2xl p-3.5 flex flex-col justify-between relative overflow-hidden">
         {/* Header & View Mode Switcher */}
         <div className="flex items-center justify-between z-10 relative">
-          <div className="flex items-center space-x-2 text-slate-100 font-bold text-xs tracking-tight">
-            <div className="w-5 h-5 rounded-lg glass-card flex items-center justify-center border-cyan-500/40 shadow-[0_0_10px_rgba(6,182,212,0.3)]">
-              <Orbit className="w-3.5 h-3.5 text-cyan-400 animate-[spin_12s_linear_infinite]" />
+          <div className="flex items-center space-x-2 text-zinc-100 font-semibold text-xs tracking-tight">
+            <div className="w-5 h-5 rounded-md glass-card flex items-center justify-center text-sky-400">
+              <Orbit className="w-3.5 h-3.5" />
             </div>
-            <span className="text-[12px] bg-gradient-to-r from-cyan-300 to-indigo-200 bg-clip-text text-transparent">
-              3D Spatial Hologram
+            <span className="text-[12px] text-zinc-200 font-medium">
+              Spatial Hologram
             </span>
           </div>
 
-          {/* Segmented View Mode Controller */}
-          <div className="flex items-center space-x-1 glass-card p-0.5 rounded-xl border border-white/[0.08] text-[10px] font-mono">
+          {/* Apple Segmented View Mode Controller */}
+          <div className="flex items-center space-x-0.5 glass-card p-0.5 rounded-lg border border-white/[0.08] text-[10px] font-mono">
             {(['3D', 'Top', 'Front', 'Side'] as const).map((mode) => (
               <button
                 key={mode}
                 onClick={() => setViewMode(mode)}
-                className={`px-2.5 py-0.5 rounded-lg font-semibold transition-all cursor-pointer ${
+                className={`px-2.5 py-0.5 rounded-md font-medium transition-all cursor-pointer ${
                   viewMode === mode
-                    ? 'bg-cyan-500/30 text-cyan-200 border border-cyan-400/40 shadow-[0_0_10px_rgba(6,182,212,0.25)]'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
+                    ? 'bg-white/15 text-white shadow-xs'
+                    : 'text-zinc-400 hover:text-zinc-200'
                 }`}
               >
                 {mode}
@@ -77,74 +74,71 @@ export const UpperStage: React.FC = () => {
         </div>
 
         {/* 3D WebGL Canvas Container */}
-        <div className="relative flex-1 w-full my-1.5 rounded-xl overflow-hidden glass-card border-white/[0.06] shadow-inner">
+        <div className="relative flex-1 w-full my-1.5 rounded-xl overflow-hidden glass-card border-white/[0.06]">
           <SpatialRadar3D viewMode={viewMode} />
         </div>
 
         {/* Telemetry Readout Footer */}
-        <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1.5 border-t border-white/[0.06] z-10 font-mono tabular-nums">
+        <div className="flex items-center justify-between text-[10px] text-zinc-400 pt-1.5 border-t border-white/[0.06] z-10 font-mono tabular-nums">
           <div className="flex items-center space-x-2">
-            <span className={spatialParams.enabled ? 'text-cyan-400 font-bold' : 'text-slate-500'}>
-              {spatialParams.enabled ? `Az: ${degrees}°` : '8D Bypassed'}
+            <span className={spatialParams.enabled ? 'text-sky-400 font-medium' : 'text-zinc-500'}>
+              {spatialParams.enabled ? `Az: ${degrees}°` : 'Bypassed'}
             </span>
             <span className="text-white/20">•</span>
-            <span className="text-amber-400 font-semibold">
+            <span className="text-amber-400 font-medium">
               Dist: {Math.round((spatialParams.distance ?? 0) * 100)}%
             </span>
             <span className="text-white/20">•</span>
             <span
               className={
                 (spatialParams.elevation ?? 0) > 0.05
-                  ? 'text-emerald-400 font-semibold'
+                  ? 'text-emerald-400 font-medium'
                   : (spatialParams.elevation ?? 0) < -0.05
-                  ? 'text-purple-400 font-semibold'
-                  : 'text-slate-400'
+                  ? 'text-purple-400 font-medium'
+                  : 'text-zinc-400 font-medium'
               }
             >
               Elev: {(spatialParams.elevation ?? 0) > 0.05 ? `+${Math.round(spatialParams.elevation * 100)}%` : (spatialParams.elevation ?? 0) < -0.05 ? `${Math.round(spatialParams.elevation * 100)}%` : '0%'}
             </span>
           </div>
           <div className="flex items-center space-x-1.5">
-            <span className="glass-pill px-2 py-0.5 rounded-full text-[9px] text-indigo-300 border-indigo-500/30 font-bold">
-              AirPods Max Mode
+            <span className="glass-pill px-2 py-0.5 rounded-md text-[9px] text-zinc-300 font-medium">
+              Spatial Audio Engine
             </span>
           </div>
         </div>
       </div>
 
       {/* Right: Live Graph Editor Curves & Automation Monitor */}
-      <div className="col-span-7 glass-panel rounded-2xl p-3.5 flex flex-col justify-between relative overflow-hidden shadow-xl">
-        {/* Ambient Optics Glow */}
-        <div className="absolute -top-16 -right-16 w-64 h-64 bg-indigo-500/15 rounded-full blur-3xl pointer-events-none" />
-
+      <div className="col-span-7 glass-panel rounded-2xl p-3.5 flex flex-col justify-between relative overflow-hidden">
         {/* Header Tools */}
-        <div className="flex items-center justify-between pb-2.5 border-b border-white/[0.06] relative z-10">
-          <div className="flex items-center space-x-2.5">
+        <div className="flex items-center justify-between pb-2 border-b border-white/[0.06] relative z-10">
+          <div className="flex items-center space-x-2">
             <span
               onClick={() => setActiveTab('Graph')}
-              className="text-xs font-bold text-slate-100 hover:text-cyan-300 cursor-pointer flex items-center gap-1.5 transition-colors tracking-tight"
+              className="text-xs font-semibold text-zinc-200 hover:text-white cursor-pointer flex items-center gap-1.5 transition-colors tracking-tight"
             >
-              Automation Curves
-              <ExternalLink className="w-3 h-3 text-slate-500 hover:text-cyan-400" />
+              Automation Highway
+              <ExternalLink className="w-3 h-3 text-zinc-500" />
             </span>
             <span
               onClick={() => setActiveTab('Graph')}
-              className="glass-pill text-[9px] text-cyan-300 font-mono px-2 py-0.5 rounded-full border-cyan-500/30 cursor-pointer hover:bg-cyan-950/40 transition-colors shadow-[0_0_8px_rgba(6,182,212,0.15)] font-bold"
+              className="glass-pill text-[9px] text-zinc-300 font-mono px-2 py-0.5 rounded-md cursor-pointer hover:bg-white/[0.08] transition-colors"
             >
-              Real-Time Sync
+              Live Sync
             </span>
           </div>
 
-          <div className="flex items-center space-x-1.5 text-[11px] font-mono">
+          <div className="flex items-center space-x-1.5 text-[10px] font-mono">
             <button
               type="button"
               onClick={() => {
                 setActiveLane('pan');
                 setActiveTab('Graph');
               }}
-              className="glass-pill px-2.5 py-0.5 rounded-lg flex items-center gap-1.5 text-cyan-300 hover:text-white cursor-pointer active:scale-95"
+              className="glass-pill px-2 py-0.5 rounded-md flex items-center gap-1.5 text-zinc-300 hover:text-white cursor-pointer"
             >
-              <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_6px_#06b6d4]" /> Pan
+              <span className="w-1.5 h-1.5 rounded-full bg-sky-400" /> Pan
             </button>
             <button
               type="button"
@@ -152,9 +146,9 @@ export const UpperStage: React.FC = () => {
                 setActiveLane('distance');
                 setActiveTab('Graph');
               }}
-              className="glass-pill px-2.5 py-0.5 rounded-lg flex items-center gap-1.5 text-amber-300 hover:text-white cursor-pointer active:scale-95"
+              className="glass-pill px-2 py-0.5 rounded-md flex items-center gap-1.5 text-zinc-300 hover:text-white cursor-pointer"
             >
-              <span className="w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_6px_#f59e0b]" /> Distance
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" /> Distance
             </button>
             <button
               type="button"
@@ -162,9 +156,9 @@ export const UpperStage: React.FC = () => {
                 setActiveLane('elevation');
                 setActiveTab('Graph');
               }}
-              className="glass-pill px-2.5 py-0.5 rounded-lg flex items-center gap-1.5 text-purple-300 hover:text-white cursor-pointer active:scale-95"
+              className="glass-pill px-2 py-0.5 rounded-md flex items-center gap-1.5 text-zinc-300 hover:text-white cursor-pointer"
             >
-              <span className="w-2 h-2 rounded-full bg-purple-400 shadow-[0_0_6px_#a855f7]" /> Elev
+              <span className="w-1.5 h-1.5 rounded-full bg-purple-400" /> Elev
             </button>
             <button
               type="button"
@@ -172,9 +166,9 @@ export const UpperStage: React.FC = () => {
                 setActiveLane('reverb');
                 setActiveTab('Graph');
               }}
-              className="glass-pill px-2.5 py-0.5 rounded-lg flex items-center gap-1.5 text-emerald-300 hover:text-white cursor-pointer active:scale-95"
+              className="glass-pill px-2 py-0.5 rounded-md flex items-center gap-1.5 text-zinc-300 hover:text-white cursor-pointer"
             >
-              <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_6px_#10b981]" /> Reverb
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Reverb
             </button>
           </div>
         </div>
@@ -253,28 +247,29 @@ export const UpperStage: React.FC = () => {
               <div
                 onClick={() => setActiveTab('Graph')}
                 title="Click to open interactive Graph Editor"
-                className="relative flex-1 my-2 glass-card rounded-xl border border-white/[0.08] hover:border-cyan-500/40 overflow-hidden flex items-center cursor-pointer transition-all shadow-inner group"
+                className="relative flex-1 my-2 glass-card rounded-xl border border-white/[0.08] hover:border-white/[0.2] overflow-hidden flex items-center cursor-pointer transition-all"
               >
+                {/* Precision Sub-Divided Grid */}
                 <div className="absolute inset-0 flex justify-between px-6 pointer-events-none opacity-20">
                   {['00:00', '00:30', '01:00', '01:30', '02:00', '02:30', '03:00'].map((tc) => (
                     <div key={tc} className="flex flex-col items-center">
-                      <span className="text-[9px] text-slate-400 font-mono">{tc}</span>
-                      <div className="w-[1px] h-full bg-white/10" />
+                      <span className="text-[9px] text-zinc-500 font-mono">{tc}</span>
+                      <div className="w-[1px] h-full bg-white/[0.08]" />
                     </div>
                   ))}
                 </div>
 
                 <svg className="w-full h-full p-2" viewBox="0 0 600 120" preserveAspectRatio="none">
-                  {/* Dynamic Pan curve */}
-                  <path d={panPath} fill="none" stroke="#06b6d4" strokeWidth="2.5" className="drop-shadow-[0_0_8px_rgba(6,182,212,0.4)]" />
-                  {/* Dynamic Distance curve */}
-                  <path d={distPath} fill="none" stroke="#f59e0b" strokeWidth="2" className="drop-shadow-[0_0_6px_rgba(245,158,11,0.3)]" />
-                  {/* Dynamic Elevation curve */}
-                  <path d={elevPath} fill="none" stroke="#a855f7" strokeWidth="2" className="drop-shadow-[0_0_6px_rgba(168,85,247,0.3)]" />
-                  {/* Dynamic Reverb curve */}
-                  <path d={revPath} fill="none" stroke="#10b981" strokeWidth="2" className="drop-shadow-[0_0_6px_rgba(16,185,129,0.3)]" />
+                  {/* Pan curve */}
+                  <path d={panPath} fill="none" stroke="#38bdf8" strokeWidth="2" strokeOpacity="0.85" />
+                  {/* Distance curve */}
+                  <path d={distPath} fill="none" stroke="#fbbf24" strokeWidth="1.75" strokeOpacity="0.8" />
+                  {/* Elevation curve */}
+                  <path d={elevPath} fill="none" stroke="#c084fc" strokeWidth="1.75" strokeOpacity="0.8" />
+                  {/* Reverb curve */}
+                  <path d={revPath} fill="none" stroke="#34d399" strokeWidth="1.75" strokeOpacity="0.8" />
 
-                  {/* Synchronized Playhead Marker with Glowing Cap */}
+                  {/* Synchronized Playhead Marker */}
                   {playheadX >= 0 && playheadX <= 600 && (
                     <g>
                       <line
@@ -283,29 +278,28 @@ export const UpperStage: React.FC = () => {
                         x2={playheadX}
                         y2={120}
                         stroke="#f43f5e"
-                        strokeWidth="2"
-                        strokeDasharray="4 2"
+                        strokeWidth="1.5"
                       />
-                      <circle cx={playheadX} cy={60} r={4} fill="#f43f5e" className="animate-pulse" />
+                      <circle cx={playheadX} cy={60} r={3} fill="#ffffff" stroke="#f43f5e" strokeWidth="1.5" />
                     </g>
                   )}
                 </svg>
               </div>
 
               {/* Footer info */}
-              <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono tabular-nums">
+              <div className="flex items-center justify-between text-[10px] text-zinc-400 font-mono tabular-nums">
                 <span>
                   {panLaneHasKf ? (
-                    <span className="text-cyan-400 font-bold">Azimuth: Keyframe Driven (Manual Orbit)</span>
+                    <span className="text-sky-400 font-medium">Azimuth: Keyframe Automated</span>
                   ) : (
-                    <span>Continuous LFO: {spatialParams.rotation_speed} Hz</span>
+                    <span>LFO Generator: {spatialParams.rotation_speed} Hz</span>
                   )}
                 </span>
                 <span
                   onClick={() => setActiveTab('Graph')}
-                  className="hover:text-cyan-300 cursor-pointer transition-colors text-slate-400 font-medium"
+                  className="hover:text-zinc-200 cursor-pointer transition-colors text-zinc-500 font-medium"
                 >
-                  Woodworth Binaural DSP • Click to Edit Graph
+                  Binaural DSP Automation • Click to Expand
                 </span>
               </div>
             </>

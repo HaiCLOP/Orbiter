@@ -20,7 +20,7 @@ export const SpatialInspector: React.FC = () => {
   ];
 
   const orbitPresets = [
-    { name: 'Classic Orbit', speed: 0.25, intensity: 0.85, distance: 0.35, elevation: 0.0, icon: <InfinityIcon className="w-3.5 h-3.5 text-cyan-400" /> },
+    { name: 'Classic Orbit', speed: 0.25, intensity: 0.85, distance: 0.35, elevation: 0.0, icon: <InfinityIcon className="w-3.5 h-3.5 text-sky-400" /> },
     { name: 'Slow Spin', speed: 0.1, intensity: 0.75, distance: 0.2, elevation: 0.1, icon: <Circle className="w-3.5 h-3.5 text-purple-400" /> },
     { name: 'Front to Back', speed: 0.18, intensity: 0.9, distance: 0.6, elevation: -0.2, icon: <Disc className="w-3.5 h-3.5 text-rose-400" /> },
     { name: 'Head Circle', speed: 0.4, intensity: 0.95, distance: 0.1, elevation: 0.3, icon: <Orbit className="w-3.5 h-3.5 text-emerald-400" /> },
@@ -28,45 +28,45 @@ export const SpatialInspector: React.FC = () => {
   ];
 
   return (
-    <div className="space-y-4 select-none">
+    <div className="space-y-3.5 select-none">
       {/* 8D Master Section */}
-      <section className="space-y-2">
-        <div className="flex items-center justify-between text-slate-400 font-bold text-[10px] uppercase tracking-wider px-1">
+      <section className="space-y-1.5">
+        <div className="flex items-center justify-between text-zinc-400 font-semibold text-[10px] uppercase tracking-wider px-1">
           <div className="flex items-center space-x-1.5">
-            <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+            <Sparkles className="w-3 h-3 text-sky-400" />
             <span>8D Panning Core</span>
           </div>
           <button
             onClick={() => set8DEnabled(!spatialParams.enabled)}
-            className={`glass-pill px-2.5 py-0.5 rounded-full flex items-center space-x-1.5 transition-all cursor-pointer font-bold ${
+            className={`glass-pill px-2.5 py-0.5 rounded-md flex items-center space-x-1.5 transition-all cursor-pointer font-medium ${
               spatialParams.enabled
-                ? 'text-cyan-300 border-cyan-500/40 shadow-[0_0_10px_rgba(6,182,212,0.25)]'
-                : 'text-slate-400 hover:text-white'
+                ? 'bg-white/15 text-white border-white/20'
+                : 'text-zinc-400 hover:text-white'
             }`}
           >
             {spatialParams.enabled ? (
-              <CheckSquare2 className="w-3 h-3 text-cyan-400" />
+              <CheckSquare2 className="w-3 h-3 text-sky-400" />
             ) : (
-              <Square className="w-3 h-3 text-slate-500" />
+              <Square className="w-3 h-3 text-zinc-500" />
             )}
             <span>{spatialParams.enabled ? 'ACTIVE' : 'BYPASSED'}</span>
           </button>
         </div>
 
         <div
-          className={`glass-panel rounded-2xl p-3.5 space-y-3.5 transition-all ${
+          className={`glass-panel rounded-xl p-3 space-y-3 transition-all ${
             spatialParams.enabled
-              ? 'border-cyan-500/30 shadow-[0_4px_20px_rgba(6,182,212,0.1)]'
-              : 'opacity-60'
+              ? 'border-white/[0.1]'
+              : 'opacity-50'
           }`}
         >
           {/* Rotation Speed Control */}
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <div className="flex items-center justify-between text-[11px]">
-              <span className="text-slate-200 font-medium">Rotation Speed</span>
-              <span className="font-mono tabular-nums text-cyan-400 text-[10px] font-bold">
+              <span className="text-zinc-200 font-medium">Rotation Speed</span>
+              <span className="font-mono tabular-nums text-sky-400 text-[10px] font-medium">
                 {spatialParams.rotation_speed.toFixed(2)} Hz{' '}
-                <span className="text-slate-500 font-normal">
+                <span className="text-zinc-500 font-normal">
                   (~{(1 / Math.max(0.01, spatialParams.rotation_speed)).toFixed(1)}s / rev)
                 </span>
               </span>
@@ -79,7 +79,7 @@ export const SpatialInspector: React.FC = () => {
               value={spatialParams.rotation_speed}
               onChange={(e) => setRotationSpeed(parseFloat(e.target.value))}
               disabled={!spatialParams.enabled}
-              className="glass-slider w-full cursor-pointer accent-cyan-400 disabled:opacity-40"
+              className="glass-slider w-full cursor-pointer accent-sky-400 disabled:opacity-40"
             />
             {/* Quick Speed Presets */}
             <div className="flex items-center justify-between pt-1">
@@ -88,10 +88,10 @@ export const SpatialInspector: React.FC = () => {
                   key={preset.label}
                   onClick={() => setRotationSpeed(preset.value)}
                   disabled={!spatialParams.enabled}
-                  className={`text-[9px] font-mono tabular-nums px-2 py-0.5 rounded-lg transition-all cursor-pointer ${
+                  className={`text-[9px] font-mono tabular-nums px-2 py-0.5 rounded-md transition-all cursor-pointer ${
                     Math.abs(spatialParams.rotation_speed - preset.value) < 0.02
-                      ? 'glass-pill text-cyan-300 border-cyan-400/40 font-bold shadow-[0_0_8px_rgba(6,182,212,0.2)]'
-                      : 'glass-card text-slate-400 hover:text-white'
+                      ? 'glass-pill bg-white/15 text-white font-medium'
+                      : 'glass-card text-zinc-400 hover:text-white'
                   }`}
                 >
                   {preset.label}
@@ -101,10 +101,10 @@ export const SpatialInspector: React.FC = () => {
           </div>
 
           {/* Spatial Intensity Control */}
-          <div className="space-y-2 pt-1 border-t border-white/[0.06]">
+          <div className="space-y-1.5 pt-2 border-t border-white/[0.06]">
             <div className="flex items-center justify-between text-[11px]">
-              <span className="text-slate-200 font-medium">Binaural Depth (Intensity)</span>
-              <span className="font-mono tabular-nums text-indigo-400 text-[10px] font-bold">
+              <span className="text-zinc-200 font-medium">Binaural Depth</span>
+              <span className="font-mono tabular-nums text-zinc-100 text-[10px] font-medium">
                 {Math.round(spatialParams.intensity * 100)}%
               </span>
             </div>
@@ -116,17 +116,17 @@ export const SpatialInspector: React.FC = () => {
               value={spatialParams.intensity}
               onChange={(e) => setIntensity(parseFloat(e.target.value))}
               disabled={!spatialParams.enabled}
-              className="glass-slider w-full cursor-pointer accent-indigo-400 disabled:opacity-40"
+              className="glass-slider w-full cursor-pointer accent-sky-400 disabled:opacity-40"
             />
           </div>
         </div>
       </section>
 
       {/* 3D Acoustic Position (Distance & Elevation) */}
-      <section className="space-y-2">
-        <div className="flex items-center justify-between text-slate-400 font-bold text-[10px] uppercase tracking-wider px-1">
+      <section className="space-y-1.5">
+        <div className="flex items-center justify-between text-zinc-400 font-semibold text-[10px] uppercase tracking-wider px-1">
           <div className="flex items-center space-x-1.5">
-            <Compass className="w-3.5 h-3.5 text-amber-400" />
+            <Compass className="w-3 h-3 text-amber-400" />
             <span>3D Spatial Coordinates</span>
           </div>
           <button
@@ -134,25 +134,25 @@ export const SpatialInspector: React.FC = () => {
               setDistance(0.0);
               setElevation(0.0);
             }}
-            className="glass-pill px-2 py-0.5 rounded-full flex items-center space-x-1 text-[9px] text-slate-300 hover:text-white cursor-pointer"
+            className="glass-pill px-2 py-0.5 rounded-md flex items-center space-x-1 text-[9px] text-zinc-400 hover:text-white cursor-pointer"
             title="Reset Distance and Elevation to center"
           >
             <RotateCcw className="w-2.5 h-2.5" />
-            <span>Center</span>
+            <span>Reset</span>
           </button>
         </div>
 
-        <div className="glass-panel rounded-2xl p-3.5 space-y-3.5 border-amber-500/20">
+        <div className="glass-panel rounded-xl p-3 space-y-3">
           {/* Distance Slider */}
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <div className="flex items-center justify-between text-[11px]">
-              <div className="flex items-center space-x-1.5 text-slate-200 font-medium">
-                <MoveHorizontal className="w-3.5 h-3.5 text-amber-400" />
-                <span>Distance Falloff</span>
+              <div className="flex items-center space-x-1.5 text-zinc-200 font-medium">
+                <MoveHorizontal className="w-3 h-3 text-amber-400" />
+                <span>Distance</span>
               </div>
-              <span className="font-mono tabular-nums text-amber-400 text-[10px] font-bold">
+              <span className="font-mono tabular-nums text-amber-400 text-[10px] font-medium">
                 {Math.round((spatialParams.distance ?? 0) * 100)}%{' '}
-                <span className="text-slate-500 font-normal">
+                <span className="text-zinc-500 font-normal">
                   ({(spatialParams.distance ?? 0) < 0.25 ? 'Near' : (spatialParams.distance ?? 0) < 0.7 ? 'Mid' : 'Far'})
                 </span>
               </span>
@@ -166,23 +166,23 @@ export const SpatialInspector: React.FC = () => {
               onChange={(e) => setDistance(parseFloat(e.target.value))}
               className="glass-slider w-full cursor-pointer accent-amber-400"
             />
-            <div className="flex justify-between text-[9px] text-slate-500 font-mono tabular-nums">
+            <div className="flex justify-between text-[9px] text-zinc-500 font-mono tabular-nums">
               <span>0% (Intimate)</span>
-              <span>100% (Distant Air)</span>
+              <span>100% (Far Field)</span>
             </div>
           </div>
 
           {/* Elevation Slider */}
-          <div className="space-y-2 pt-1 border-t border-white/[0.06]">
+          <div className="space-y-1.5 pt-2 border-t border-white/[0.06]">
             <div className="flex items-center justify-between text-[11px]">
-              <div className="flex items-center space-x-1.5 text-slate-200 font-medium">
-                <ArrowUpDown className="w-3.5 h-3.5 text-purple-400" />
-                <span>Elevation Pinna Cue</span>
+              <div className="flex items-center space-x-1.5 text-zinc-200 font-medium">
+                <ArrowUpDown className="w-3 h-3 text-purple-400" />
+                <span>Elevation</span>
               </div>
-              <span className="font-mono tabular-nums text-purple-400 text-[10px] font-bold">
+              <span className="font-mono tabular-nums text-purple-400 text-[10px] font-medium">
                 {(spatialParams.elevation ?? 0) > 0 ? `+${Math.round(spatialParams.elevation * 100)}%` : `${Math.round((spatialParams.elevation ?? 0) * 100)}%`}{' '}
-                <span className="text-slate-500 font-normal">
-                  {(spatialParams.elevation ?? 0) > 0.05 ? '(Above)' : (spatialParams.elevation ?? 0) < -0.05 ? '(Below)' : '(Ear Level)'}
+                <span className="text-zinc-500 font-normal">
+                  {(spatialParams.elevation ?? 0) > 0.05 ? '(Above)' : (spatialParams.elevation ?? 0) < -0.05 ? '(Below)' : '(Neutral)'}
                 </span>
               </span>
             </div>
@@ -195,21 +195,21 @@ export const SpatialInspector: React.FC = () => {
               onChange={(e) => setElevation(parseFloat(e.target.value))}
               className="glass-slider w-full cursor-pointer accent-purple-400"
             />
-            <div className="flex justify-between text-[9px] text-slate-500 font-mono tabular-nums">
-              <span>-100% (Feet)</span>
-              <span>0% (Neutral)</span>
-              <span>+100% (Overhead)</span>
+            <div className="flex justify-between text-[9px] text-zinc-500 font-mono tabular-nums">
+              <span>-100%</span>
+              <span>0%</span>
+              <span>+100%</span>
             </div>
           </div>
         </div>
       </section>
 
       {/* Trajectory Presets List */}
-      <section className="space-y-2">
-        <div className="text-slate-400 font-bold text-[10px] uppercase tracking-wider px-1">
-          Trajectory Presets
+      <section className="space-y-1.5">
+        <div className="text-zinc-400 font-semibold text-[10px] uppercase tracking-wider px-1">
+          Presets
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-1">
           {orbitPresets.map((preset) => (
             <div
               key={preset.name}
@@ -219,18 +219,18 @@ export const SpatialInspector: React.FC = () => {
                 setDistance(preset.distance);
                 setElevation(preset.elevation);
               }}
-              className="glass-card hover:bg-white/[0.08] p-2.5 rounded-xl border border-white/[0.06] hover:border-white/[0.18] flex items-center justify-between cursor-pointer transition-all hover:scale-[1.02] active:scale-95"
+              className="glass-card hover:bg-white/[0.08] p-2 rounded-lg border border-white/[0.06] flex items-center justify-between cursor-pointer transition-all active:scale-95"
             >
-              <div className="flex items-center space-x-2.5">
+              <div className="flex items-center space-x-2">
                 {preset.icon}
                 <div>
-                  <div className="text-[11px] font-semibold text-slate-200">{preset.name}</div>
-                  <div className="text-[9px] text-slate-400 font-mono tabular-nums">
+                  <div className="text-[11px] font-medium text-zinc-200">{preset.name}</div>
+                  <div className="text-[9px] text-zinc-500 font-mono tabular-nums">
                     Dist: {Math.round(preset.distance * 100)}% • Elev: {preset.elevation > 0 ? `+${Math.round(preset.elevation * 100)}%` : `${Math.round(preset.elevation * 100)}%`}
                   </div>
                 </div>
               </div>
-              <span className="font-mono text-[10px] text-cyan-400 font-bold glass-pill px-2 py-0.5 rounded-lg">
+              <span className="font-mono text-[10px] text-zinc-300 font-medium glass-pill px-2 py-0.5 rounded-md">
                 {preset.speed} Hz
               </span>
             </div>
