@@ -23,6 +23,7 @@ src-tauri/gen/schemas
 # Executables & Binaries
 orbiter.exe
 *.exe
+*.dll
 
 # Editor directories and files
 .vscode/*
