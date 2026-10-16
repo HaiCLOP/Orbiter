@@ -1,9 +1,14 @@
 import React, { useRef, useEffect } from 'react';
-import { Compass, Eye, AlertCircle } from 'lucide-react';
+import { Compass, Eye, AlertCircle, ExternalLink } from 'lucide-react';
 import { useTrackStore } from '../store/trackStore';
+import { useWorkspaceStore } from '../store/workspaceStore';
+import { useTimelineStore } from '../store/timelineStore';
+import type { AutomationLaneId } from '../types/automation';
 
 export const UpperStage: React.FC = () => {
-  const { isPlaying, azimuth, spatialParams } = useTrackStore();
+  const { isPlaying, azimuth, spatialParams, reverbParams, duration, position } = useTrackStore();
+  const { timeline, setActiveLane } = useTimelineStore();
+  const { setActiveTab } = useWorkspaceStore();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -270,77 +275,199 @@ export const UpperStage: React.FC = () => {
         </div>
       </div>
 
-      {/* Right: Graph Editor Curves (Staged for Step 6) */}
+      {/* Right: Live Graph Editor Curves & Automation Monitor */}
       <div className="col-span-8 bg-[#141822] rounded-lg border border-[#232938] p-3 flex flex-col justify-between relative overflow-hidden">
         {/* Header Tools */}
         <div className="flex items-center justify-between pb-2 border-b border-[#232938]">
           <div className="flex items-center space-x-2">
-            <span className="text-xs font-semibold text-zinc-300">Graph Editor</span>
-            <span className="text-[10px] text-zinc-500 font-mono bg-[#1a202c] px-1.5 py-0.5 rounded border border-[#232938]">
-              Keyframes (Step 6)
+            <span
+              onClick={() => setActiveTab('Graph')}
+              className="text-xs font-semibold text-zinc-200 hover:text-cyan-400 cursor-pointer flex items-center gap-1.5 transition-colors"
+            >
+              Graph Editor
+              <ExternalLink className="w-3 h-3 text-zinc-500 hover:text-cyan-400" />
+            </span>
+            <span
+              onClick={() => setActiveTab('Graph')}
+              className="text-[10px] text-cyan-400 font-mono bg-cyan-950/40 px-1.5 py-0.5 rounded border border-cyan-800/40 cursor-pointer hover:bg-cyan-900/50 transition-colors"
+            >
+              Keyframes (Step 7 Active)
             </span>
           </div>
 
           <div className="flex items-center space-x-3 text-[11px] font-mono">
-            <span className="flex items-center gap-1 text-cyan-400">
-              <span className="w-2 h-2 rounded-full bg-cyan-400 inline-block" /> Pan (L ↔ R)
-            </span>
-            <span className="flex items-center gap-1 text-emerald-400">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" /> Distance
-            </span>
-            <span className="flex items-center gap-1 text-amber-400">
-              <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" /> Elevation
-            </span>
-            <span className="flex items-center gap-1 text-purple-400">
-              <span className="w-2 h-2 rounded-full bg-purple-400 inline-block" /> Reverb
-            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveLane('pan');
+                setActiveTab('Graph');
+              }}
+              className="flex items-center gap-1 text-cyan-400 hover:brightness-125 cursor-pointer"
+            >
+              <span className="w-2 h-2 rounded-full bg-cyan-400 inline-block shadow-[0_0_6px_#22d3ee]" /> Pan (L ↔ R)
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveLane('distance');
+                setActiveTab('Graph');
+              }}
+              className="flex items-center gap-1 text-emerald-400 hover:brightness-125 cursor-pointer"
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block shadow-[0_0_6px_#34d399]" /> Distance
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveLane('elevation');
+                setActiveTab('Graph');
+              }}
+              className="flex items-center gap-1 text-amber-400 hover:brightness-125 cursor-pointer"
+            >
+              <span className="w-2 h-2 rounded-full bg-amber-400 inline-block shadow-[0_0_6px_#fbbf24]" /> Elevation
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveLane('reverb');
+                setActiveTab('Graph');
+              }}
+              className="flex items-center gap-1 text-purple-400 hover:brightness-125 cursor-pointer"
+            >
+              <span className="w-2 h-2 rounded-full bg-purple-400 inline-block shadow-[0_0_6px_#c084fc]" /> Reverb
+            </button>
           </div>
         </div>
 
-        {/* Canvas Curve Preview */}
-        <div className="relative flex-1 my-2 bg-[#0c0e14] rounded border border-[#1e2330] overflow-hidden flex items-center">
-          <div className="absolute inset-0 flex justify-between px-6 pointer-events-none opacity-20">
-            {['00:00', '00:30', '01:00', '01:30', '02:00', '02:30', '03:00'].map((tc) => (
-              <div key={tc} className="flex flex-col items-center">
-                <span className="text-[9px] text-zinc-500">{tc}</span>
-                <div className="w-[1px] h-full bg-zinc-700" />
+        {/* Dynamic Curve Preview from Timeline Store */}
+        {(() => {
+          const totalDur = duration > 0 ? duration : 180.0;
+          const numPoints = 80;
+
+          const getLaneCurve = (
+            laneId: AutomationLaneId,
+            min: number,
+            max: number,
+            defaultVal: number,
+            fallbackLfo?: boolean
+          ) => {
+            const lane = timeline?.lanes.find((l) => l.id === laneId);
+            const hasKeyframes = lane && lane.enabled && lane.keyframes.length > 0;
+            const points: string[] = [];
+
+            for (let i = 0; i <= numPoints; i++) {
+              const frac = i / numPoints;
+              const x = frac * 600;
+              const t = frac * totalDur;
+              let val = defaultVal;
+
+              if (hasKeyframes) {
+                const kfs = lane.keyframes;
+                if (t <= kfs[0].time) {
+                  val = kfs[0].value;
+                } else if (t >= kfs[kfs.length - 1].time) {
+                  val = kfs[kfs.length - 1].value;
+                } else {
+                  for (let s = 0; s < kfs.length - 1; s++) {
+                    if (t >= kfs[s].time && t <= kfs[s + 1].time) {
+                      const p = (t - kfs[s].time) / (kfs[s + 1].time - kfs[s].time);
+                      const curve = kfs[s].curve;
+                      if (curve.type === 'bezier') {
+                        const oneMinusP = 1 - p;
+                        const normY =
+                          3 * oneMinusP * oneMinusP * p * curve.c1_y +
+                          3 * oneMinusP * p * p * curve.c2_y +
+                          p * p * p;
+                        val = kfs[s].value + normY * (kfs[s + 1].value - kfs[s].value);
+                      } else if (curve.type === 'hold') {
+                        val = kfs[s].value;
+                      } else {
+                        val = kfs[s].value + p * (kfs[s + 1].value - kfs[s].value);
+                      }
+                      break;
+                    }
+                  }
+                }
+              } else if (fallbackLfo) {
+                val = Math.sin(2 * Math.PI * (spatialParams.rotation_speed || 0.25) * t);
+              }
+
+              const norm = (val - min) / (max - min);
+              const clampedNorm = Math.min(1, Math.max(0, norm));
+              const y = 10 + (1 - clampedNorm) * 100;
+              points.push(`${i === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`);
+            }
+
+            return points.join(' ');
+          };
+
+          const panPath = getLaneCurve('pan', -1.0, 1.0, 0.0, true);
+          const distPath = getLaneCurve('distance', 0.0, 1.0, spatialParams.distance ?? 0.0);
+          const elevPath = getLaneCurve('elevation', -1.0, 1.0, spatialParams.elevation ?? 0.0);
+          const revPath = getLaneCurve('reverb', 0.0, 1.0, reverbParams.amount ?? 0.30);
+          const panLaneHasKf = timeline?.lanes.find((l) => l.id === 'pan')?.keyframes?.length;
+          const playheadX = totalDur > 0 ? (position / totalDur) * 600 : 0;
+
+          return (
+            <>
+              <div
+                onClick={() => setActiveTab('Graph')}
+                title="Click to open interactive Graph Editor"
+                className="relative flex-1 my-2 bg-[#0c0e14] rounded border border-[#1e2330] hover:border-cyan-500/30 overflow-hidden flex items-center cursor-pointer transition-colors"
+              >
+                <div className="absolute inset-0 flex justify-between px-6 pointer-events-none opacity-20">
+                  {['00:00', '00:30', '01:00', '01:30', '02:00', '02:30', '03:00'].map((tc) => (
+                    <div key={tc} className="flex flex-col items-center">
+                      <span className="text-[9px] text-zinc-500">{tc}</span>
+                      <div className="w-[1px] h-full bg-zinc-700" />
+                    </div>
+                  ))}
+                </div>
+
+                <svg className="w-full h-full p-2" viewBox="0 0 600 120" preserveAspectRatio="none">
+                  {/* Dynamic Pan curve */}
+                  <path d={panPath} fill="none" stroke="#22d3ee" strokeWidth="2.5" />
+                  {/* Dynamic Distance curve */}
+                  <path d={distPath} fill="none" stroke="#34d399" strokeWidth="2" />
+                  {/* Dynamic Elevation curve */}
+                  <path d={elevPath} fill="none" stroke="#fbbf24" strokeWidth="2" />
+                  {/* Dynamic Reverb curve */}
+                  <path d={revPath} fill="none" stroke="#c084fc" strokeWidth="2" />
+
+                  {/* Synchronized Playhead Marker */}
+                  {playheadX >= 0 && playheadX <= 600 && (
+                    <line
+                      x1={playheadX}
+                      y1={0}
+                      x2={playheadX}
+                      y2={120}
+                      stroke="#ef4444"
+                      strokeWidth="1.5"
+                      strokeDasharray="3 2"
+                    />
+                  )}
+                </svg>
               </div>
-            ))}
-          </div>
 
-          <svg className="w-full h-full p-2" viewBox="0 0 600 120" preserveAspectRatio="none">
-            <path
-              d="M 0 60 Q 150 10 300 60 T 600 60"
-              fill="none"
-              stroke="#22d3ee"
-              strokeWidth="2"
-            />
-            <path
-              d="M 0 40 Q 150 70 300 30 T 600 50"
-              fill="none"
-              stroke="#34d399"
-              strokeWidth="2"
-            />
-            <path
-              d="M 0 80 Q 200 40 400 90 T 600 70"
-              fill="none"
-              stroke="#fbbf24"
-              strokeWidth="2"
-            />
-            <path
-              d="M 0 95 Q 250 80 450 100 T 600 85"
-              fill="none"
-              stroke="#c084fc"
-              strokeWidth="2"
-            />
-          </svg>
-        </div>
-
-        {/* Footer info */}
-        <div className="flex items-center justify-between text-[10px] text-zinc-500 font-mono">
-          <span>Continuous Azimuth LFO: {spatialParams.rotation_speed} Hz</span>
-          <span>Binaural Woodworth Model Active</span>
-        </div>
+              {/* Footer info */}
+              <div className="flex items-center justify-between text-[10px] text-zinc-500 font-mono">
+                <span>
+                  {panLaneHasKf ? (
+                    <span className="text-cyan-400 font-semibold">Azimuth: Keyframe Automated (LFO Bypassed)</span>
+                  ) : (
+                    <span>Continuous Azimuth LFO: {spatialParams.rotation_speed} Hz</span>
+                  )}
+                </span>
+                <span
+                  onClick={() => setActiveTab('Graph')}
+                  className="hover:text-cyan-400 cursor-pointer transition-colors"
+                >
+                  Binaural Woodworth Model Active • Click to Edit in Graph
+                </span>
+              </div>
+            </>
+          );
+        })()}
       </div>
     </div>
   );
