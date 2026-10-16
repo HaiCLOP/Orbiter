@@ -26,6 +26,52 @@ struct StreamHandle(Stream);
 unsafe impl Send for StreamHandle {}
 unsafe impl Sync for StreamHandle {}
 
+/// Explicitly opts this application out of Windows Communications Ducking.
+///
+/// Under Windows, when a VoIP communications app (such as Discord, Teams, or Zoom) opens
+/// an audio session, the Windows Ducking Manager automatically attenuates all non-communication
+/// audio sessions by 80% (or mutes them) unless the application explicitly invokes
+/// `IAudioSessionControl2::SetDuckingPreference(TRUE)` (which apps like Spotify, Chrome, and VLC do).
+///
+/// This function enumerates all active audio render endpoints and sets the ducking preference
+/// to true, preventing Orbiter from being suppressed during Discord voice calls.
+#[cfg(windows)]
+pub fn opt_out_of_windows_ducking() {
+    use windows::core::Interface;
+    use windows::Win32::Media::Audio::{
+        eRender, IAudioSessionControl2, IAudioSessionManager2,
+        IMMDeviceEnumerator, MMDeviceEnumerator, DEVICE_STATE_ACTIVE,
+    };
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED,
+    };
+
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        if let Ok(enumerator) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL) {
+            if let Ok(devices) = enumerator.EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE) {
+                let count = devices.GetCount().unwrap_or(0);
+                for i in 0..count {
+                    if let Ok(device) = devices.Item(i) {
+                        if let Ok(session_manager) = device.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None) {
+                            if let Ok(control) = session_manager.GetAudioSessionControl(None, 0) {
+                                if let Ok(control2) = control.cast::<IAudioSessionControl2>() {
+                                    let _ = control2.SetDuckingPreference(true);
+                                }
+                            }
+                        }
+                    }
+                }
+                log::info!("Opted out of Windows Communications Ducking across {} audio endpoints", count);
+            }
+        }
+    }
+}
+
+#[cfg(not(windows))]
+pub fn opt_out_of_windows_ducking() {}
+
+
 /// Thread-safe atomic bridge for transferring EQ parameters and precalculated biquad coefficients
 /// from the UI thread to the CPAL audio processing callback.
 ///
@@ -638,6 +684,8 @@ impl AudioPlayer {
             stream_rate
         );
 
+        opt_out_of_windows_ducking();
+
         Ok(Self {
             _stream: RwLock::new(Some(stream_handle)),
             current_device_name: RwLock::new(device_name),
@@ -734,6 +782,7 @@ impl AudioPlayer {
         self.spatial_3d_bridge.set_elevation(new_sample_rate as f32, self.spatial_3d_bridge.get_elevation());
 
         log::info!("Switched audio device to '{}' ({} Hz)", device_name, new_sample_rate);
+        opt_out_of_windows_ducking();
         Ok(self.get_audio_devices())
     }
 
