@@ -1,0 +1,329 @@
+use std::path::Path;
+use tauri::{AppHandle, State};
+use tauri_plugin_dialog::DialogExt;
+
+use crate::decode::{decode_audio_file, generate_waveform_peaks};
+use crate::models::{DynamicsParams, EqParams, ReverbParams, Spatial8DParams, TrackInfo};
+use crate::state::AppState;
+
+/// Opens a native desktop file dialog to pick an audio file.
+///
+/// Inputs: `app` (AppHandle)
+/// Outputs: `Ok(Some(path))` or `Ok(None)` if cancelled
+#[tauri::command]
+pub async fn select_audio_file(app: AppHandle) -> Result<Option<String>, String> {
+    let file_path = app
+        .dialog()
+        .file()
+        .add_filter("Audio Files", &["mp3", "wav", "flac", "ogg", "m4a", "aac"])
+        .blocking_pick_file();
+
+    match file_path {
+        Some(path) => Ok(Some(path.to_string())),
+        None => Ok(None),
+    }
+}
+
+/// Loads and decodes an audio file into the player engine.
+///
+/// Inputs:
+/// - `path`: Absolute filesystem path to audio file
+/// - `state`: Application state containing player and metadata cache
+///
+/// Outputs:
+/// - `Ok(TrackInfo)`: Technical specs and waveform envelope
+/// - `Err(String)`: Human-readable error message on failure
+///
+/// Invariants:
+/// - Audio buffer is decoded to interleaved stereo f32.
+/// - Waveform peaks are generated with 2,000 bins.
+/// - Playback position is reset to 0.0.
+#[tauri::command]
+pub async fn load_track(
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<TrackInfo, String> {
+    log::info!("Loading track: {}", path);
+
+    let (audio_buffer, format_name) = decode_audio_file(&path)
+        .map_err(|err| format!("Failed to decode audio file: {err}"))?;
+
+    let file_name = Path::new(&path)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "Unknown".to_string());
+
+    // Generate dual-channel (L/R) waveform peaks (2,000 bins)
+    let peaks = generate_waveform_peaks(&audio_buffer.samples, audio_buffer.channels, 2000);
+
+    // Compute input loudness normalize gain to target -1.0 dBFS raw peak
+    let max_peak = audio_buffer.samples.iter().fold(0.0f32, |m, &s| m.max(s.abs()));
+    let target_peak = 10.0_f32.powf(-1.0 / 20.0); // 0.89125 linear
+    let normalize_gain = if max_peak > 1e-4 {
+        target_peak / max_peak
+    } else {
+        1.0
+    };
+
+    let track_info = TrackInfo {
+        file_name,
+        file_path: path.clone(),
+        duration: audio_buffer.duration,
+        sample_rate: audio_buffer.sample_rate,
+        channels: audio_buffer.channels,
+        format_name,
+        peaks,
+        normalize_gain,
+    };
+
+    // Load into real-time audio playback engine
+    if let Some(player) = &state.player {
+        player.set_normalize_gain(normalize_gain);
+        player.load_buffer(audio_buffer);
+    } else {
+        return Err("Audio player engine is not initialized (no audio output device available)".to_string());
+    }
+
+    // Cache metadata in state
+    if let Ok(mut track_guard) = state.current_track.lock() {
+        *track_guard = Some(track_info.clone());
+    }
+
+    Ok(track_info)
+}
+
+/// Resumes playback of loaded audio track.
+#[tauri::command]
+pub fn play(state: State<'_, AppState>) -> Result<(), String> {
+    if let Some(player) = &state.player {
+        player.play();
+        Ok(())
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
+}
+
+/// Pauses audio playback at current position.
+#[tauri::command]
+pub fn pause(state: State<'_, AppState>) -> Result<(), String> {
+    if let Some(player) = &state.player {
+        player.pause();
+        Ok(())
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
+}
+
+/// Stops audio playback and returns playhead to the beginning.
+#[tauri::command]
+pub fn stop(state: State<'_, AppState>) -> Result<(), String> {
+    if let Some(player) = &state.player {
+        player.stop();
+        Ok(())
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
+}
+
+/// Seeks playhead to the given timestamp in seconds.
+///
+/// Inputs:
+/// - `seconds`: Target position in seconds
+/// Invariants:
+/// - Target is clamped to >= 0.0 and <= track duration.
+#[tauri::command]
+pub fn seek(seconds: f64, state: State<'_, AppState>) -> Result<(), String> {
+    let max_duration = if let Ok(guard) = state.current_track.lock() {
+        guard.as_ref().map(|t| t.duration).unwrap_or(0.0)
+    } else {
+        0.0
+    };
+
+    let clamped = seconds.clamp(0.0, max_duration);
+
+    if let Some(player) = &state.player {
+        player.seek(clamped);
+        Ok(())
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
+}
+
+/// Retrieves the current playback position in seconds.
+#[tauri::command]
+pub fn get_position(state: State<'_, AppState>) -> Result<f64, String> {
+    if let Some(player) = &state.player {
+        Ok(player.get_position())
+    } else {
+        Ok(0.0)
+    }
+}
+
+/// Enables or disables 8D spatial audio processing.
+///
+/// Inputs: `enabled` (boolean)
+/// Invariants: Crossfades smoothly over ~25ms without audio glitch or click.
+#[tauri::command]
+pub fn set_8d_enabled(enabled: bool, state: State<'_, AppState>) -> Result<(), String> {
+    if let Some(player) = &state.player {
+        player.set_8d_enabled(enabled);
+        Ok(())
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
+}
+
+/// Sets 8D orbital rotation speed in Hz.
+///
+/// Inputs: `speed` (Hz, e.g. 0.25)
+/// Invariants: Value is clamped between 0.01 and 5.0 Hz; smoothed exponentially.
+#[tauri::command]
+pub fn set_rotation_speed(speed: f32, state: State<'_, AppState>) -> Result<(), String> {
+    if let Some(player) = &state.player {
+        player.set_rotation_speed(speed);
+        Ok(())
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
+}
+
+/// Sets 8D spatial intensity (wet/dry balance).
+///
+/// Inputs: `intensity` (0.0 to 1.0)
+/// Invariants: Value is clamped between 0.0 and 1.0; smoothed exponentially.
+#[tauri::command]
+pub fn set_intensity(intensity: f32, state: State<'_, AppState>) -> Result<(), String> {
+    if let Some(player) = &state.player {
+        player.set_intensity(intensity);
+        Ok(())
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
+}
+
+/// Sets 3D spatial distance attenuation and air absorption.
+///
+/// Inputs: `distance` (0.0 to 1.0, where 0.0 is near and 1.0 is far)
+/// Invariants: Value is clamped between 0.0 and 1.0; smoothed exponentially and crossfaded.
+#[tauri::command]
+pub fn set_distance(distance: f32, state: State<'_, AppState>) -> Result<(), String> {
+    if let Some(player) = &state.player {
+        player.set_distance(distance);
+        Ok(())
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
+}
+
+/// Sets 3D elevation pinna spectral cue.
+///
+/// Inputs: `elevation` (-1.0 to 1.0, where -1.0 is below and 1.0 is above)
+/// Invariants: Value is clamped between -1.0 and 1.0; crossfaded via 128-sample biquad.
+#[tauri::command]
+pub fn set_elevation(elevation: f32, state: State<'_, AppState>) -> Result<(), String> {
+    if let Some(player) = &state.player {
+        player.set_elevation(elevation);
+        Ok(())
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
+}
+
+/// Retrieves current 8D/3D spatial parameters.
+#[tauri::command]
+pub fn get_8d_params(state: State<'_, AppState>) -> Result<Spatial8DParams, String> {
+    if let Some(player) = &state.player {
+        Ok(player.get_8d_params())
+    } else {
+        Ok(Spatial8DParams::default())
+    }
+}
+
+/// Retrieves current 8D/3D spatial parameters (unified alias).
+#[tauri::command]
+pub fn get_spatial_params(state: State<'_, AppState>) -> Result<Spatial8DParams, String> {
+    get_8d_params(state)
+}
+
+/// Sets real-time 4-band EQ and master volume parameters.
+///
+/// Inputs: `params` (EqParams)
+/// Invariants:
+/// - Recomputes biquad filter coefficients on the UI thread.
+/// - Atomic handoff to the audio callback with zero heap allocations.
+/// - Click-free dual-state crossfading (128 samples).
+#[tauri::command]
+pub fn set_eq_params(params: EqParams, state: State<'_, AppState>) -> Result<(), String> {
+    if let Some(player) = &state.player {
+        player.set_eq_params(params);
+        Ok(())
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
+}
+
+/// Retrieves current 4-band EQ and master volume parameters.
+#[tauri::command]
+pub fn get_eq_params(state: State<'_, AppState>) -> Result<EqParams, String> {
+    if let Some(player) = &state.player {
+        Ok(player.get_eq_params())
+    } else {
+        Ok(EqParams::default())
+    }
+}
+
+/// Sets real-time environmental reverberation parameters.
+///
+/// Inputs: `params` (ReverbParams)
+/// Invariants:
+/// - Feedback gain calculated per RT60 decay and clamped <= 0.985 for unconditional stability.
+/// - Distance auto-tie modulates wet mix naturally with virtual source distance.
+/// - Atomic handoff with zero heap allocations on the audio thread.
+#[tauri::command]
+pub fn set_reverb_params(params: ReverbParams, state: State<'_, AppState>) -> Result<(), String> {
+    if let Some(player) = &state.player {
+        player.set_reverb_params(params);
+        Ok(())
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
+}
+
+/// Retrieves current environmental reverberation parameters.
+#[tauri::command]
+pub fn get_reverb_params(state: State<'_, AppState>) -> Result<ReverbParams, String> {
+    if let Some(player) = &state.player {
+        Ok(player.get_reverb_params())
+    } else {
+        Ok(ReverbParams::default())
+    }
+}
+
+/// Sets real-time mastering dynamics parameters.
+///
+/// Inputs: `params` (DynamicsParams)
+/// Invariants:
+/// - Atomic handoff to the audio thread with zero dynamic allocations.
+/// - Brickwall peak limiter clamps peaks <= threshold_db.
+/// - Input loudness normalize scales track input to -1.0 dBFS target.
+#[tauri::command]
+pub fn set_dynamics_params(params: DynamicsParams, state: State<'_, AppState>) -> Result<(), String> {
+    if let Some(player) = &state.player {
+        player.set_dynamics_params(params);
+        Ok(())
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
+}
+
+/// Retrieves current mastering dynamics parameters.
+#[tauri::command]
+pub fn get_dynamics_params(state: State<'_, AppState>) -> Result<DynamicsParams, String> {
+    if let Some(player) = &state.player {
+        Ok(player.get_dynamics_params())
+    } else {
+        Ok(DynamicsParams::default())
+    }
+}
+
+
