@@ -82,6 +82,8 @@ pub fn run() {
             commands::load_timeline_preset,
             commands::get_audio_devices,
             commands::set_audio_device,
+            commands::set_balance,
+            commands::get_balance,
         ])
         .run(tauri::generate_context!());
 

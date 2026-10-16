@@ -42,6 +42,7 @@ export const useTrackStore = create<TrackState>((set, get) => ({
     treble_gain_db: 0,
     master_volume: 1.0,
   },
+  balance: 0.0,
 
   reverbParams: {
     enabled: false,
@@ -297,6 +298,20 @@ export const useTrackStore = create<TrackState>((set, get) => ({
     if (isTauri()) {
       try {
         await invoke('set_azimuth', { azimuth: normalized });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        set({ error: msg });
+      }
+    }
+  },
+
+  setBalance: async (balance: number) => {
+    const clamped = Math.max(-1, Math.min(1, balance));
+    set({ balance: clamped });
+
+    if (isTauri()) {
+      try {
+        await invoke('set_balance', { balance: clamped });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         set({ error: msg });

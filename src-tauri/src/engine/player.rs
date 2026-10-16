@@ -302,6 +302,9 @@ pub struct AudioPlayer {
     dynamics_bridge: Arc<DynamicsBridge>,
     normalize_gain: Arc<AtomicU32>, // f32 bits
 
+    // Stereo Output Balance Trim [-1.0, 1.0] (Post-Master Gain, Pre-Limiter)
+    balance: Arc<AtomicU32>, // f32 bits
+
     // Multi-Lane Keyframe Automation Bridge
     timeline_bridge: Arc<TimelineBridge>,
 }
@@ -323,6 +326,7 @@ impl AudioPlayer {
         cb_eq_bridge: Arc<EqBridge>,
         cb_dynamics_bridge: Arc<DynamicsBridge>,
         cb_normalize_gain: Arc<AtomicU32>,
+        cb_balance: Arc<AtomicU32>,
         cb_timeline_bridge: Arc<TimelineBridge>,
     ) -> Result<(StreamHandle, u32), String> {
         let supported_config = device
@@ -365,6 +369,9 @@ impl AudioPlayer {
         let mut prev_vol_automated = false;
         let mut current_norm_gain: f32 = 1.0;
         let norm_smooth_alpha = 1.0 - (-1.0 / (0.025 * sample_rate as f32)).exp();
+        let mut current_bal_gain_l: f32 = 1.0;
+        let mut current_bal_gain_r: f32 = 1.0;
+        let bal_smooth_alpha = 1.0 - (-1.0 / (0.015 * sample_rate as f32)).exp();
 
         let stream = device
             .build_output_stream(
@@ -600,8 +607,17 @@ impl AudioPlayer {
                         // 5. 4-Band Cascaded EQ + Smoothed Volume DSP
                         let (eq_l, eq_r) = eq_stage.process_sample(rev_l, rev_r);
 
+                        // 5.5 Stereo Output Balance Trim (Post-Master Gain, Pre-Limiter)
+                        let target_balance = f32::from_bits(cb_balance.load(Ordering::Relaxed)).clamp(-1.0, 1.0);
+                        let target_bal_l = if target_balance <= 0.0 { 1.0 } else { 1.0 - target_balance };
+                        let target_bal_r = if target_balance >= 0.0 { 1.0 } else { 1.0 + target_balance };
+                        current_bal_gain_l += bal_smooth_alpha * (target_bal_l - current_bal_gain_l);
+                        current_bal_gain_r += bal_smooth_alpha * (target_bal_r - current_bal_gain_r);
+                        let bal_l = eq_l * current_bal_gain_l;
+                        let bal_r = eq_r * current_bal_gain_r;
+
                         // 6. Master Dynamics Stage (5ms lookahead brickwall peak limiter + soft clipper)
-                        let (dyn_l, dyn_r) = dynamics_stage.process_sample(eq_l, eq_r);
+                        let (dyn_l, dyn_r) = dynamics_stage.process_sample(bal_l, bal_r);
 
                         if out_channels == 1 {
                             frame_chunk[0] = (dyn_l + dyn_r) * 0.5;
@@ -662,6 +678,7 @@ impl AudioPlayer {
         let eq_bridge = Arc::new(EqBridge::new(sample_rate as f32));
         let dynamics_bridge = Arc::new(DynamicsBridge::new());
         let normalize_gain = Arc::new(AtomicU32::new(1.0f32.to_bits()));
+        let balance = Arc::new(AtomicU32::new(0.0f32.to_bits()));
         let timeline_bridge = Arc::new(TimelineBridge::new());
 
         let (stream_handle, stream_rate) = Self::create_stream_for_device(
@@ -679,6 +696,7 @@ impl AudioPlayer {
             Arc::clone(&eq_bridge),
             Arc::clone(&dynamics_bridge),
             Arc::clone(&normalize_gain),
+            Arc::clone(&balance),
             Arc::clone(&timeline_bridge),
         )?;
 
@@ -707,6 +725,7 @@ impl AudioPlayer {
             eq_bridge,
             dynamics_bridge,
             normalize_gain,
+            balance,
             timeline_bridge,
         })
     }
@@ -764,6 +783,7 @@ impl AudioPlayer {
             Arc::clone(&self.eq_bridge),
             Arc::clone(&self.dynamics_bridge),
             Arc::clone(&self.normalize_gain),
+            Arc::clone(&self.balance),
             Arc::clone(&self.timeline_bridge),
         )?;
 
@@ -945,6 +965,18 @@ impl AudioPlayer {
     /// Retrieves the target input normalize gain multiplier.
     pub fn get_normalize_gain(&self) -> f32 {
         f32::from_bits(self.normalize_gain.load(Ordering::Acquire))
+    }
+
+    /// Sets output stereo balance trim [-1.0, 1.0].
+    /// -1.0 = Full Left, 0.0 = Center, +1.0 = Full Right.
+    pub fn set_balance(&self, balance: f32) {
+        let clamped = balance.clamp(-1.0, 1.0);
+        self.balance.store(clamped.to_bits(), Ordering::Release);
+    }
+
+    /// Retrieves current output stereo balance trim [-1.0, 1.0].
+    pub fn get_balance(&self) -> f32 {
+        f32::from_bits(self.balance.load(Ordering::Acquire))
     }
 
     /// Device hardware sample rate.
@@ -1144,5 +1176,27 @@ mod tests {
         assert!(is_headphone_device_name("In-Ear Monitor (IEM)"));
         assert!(!is_headphone_device_name("Speakers (Realtek(R) Audio)"));
         assert!(!is_headphone_device_name("AI Noise-cancelling Output (ASUS Utility)"));
+    }
+
+    #[test]
+    fn test_balance_atomic_and_gain_invariants() {
+        let balance = Arc::new(AtomicU32::new(0.0f32.to_bits()));
+        assert_eq!(f32::from_bits(balance.load(Ordering::Acquire)), 0.0);
+
+        // Test left balance
+        balance.store((-0.5f32).to_bits(), Ordering::Release);
+        let b = f32::from_bits(balance.load(Ordering::Acquire));
+        let target_l = if b <= 0.0 { 1.0 } else { 1.0 - b };
+        let target_r = if b >= 0.0 { 1.0 } else { 1.0 + b };
+        assert_eq!(target_l, 1.0);
+        assert_eq!(target_r, 0.5);
+
+        // Test right balance
+        balance.store((0.75f32).to_bits(), Ordering::Release);
+        let b = f32::from_bits(balance.load(Ordering::Acquire));
+        let target_l = if b <= 0.0 { 1.0 } else { 1.0 - b };
+        let target_r = if b >= 0.0 { 1.0 } else { 1.0 + b };
+        assert_eq!(target_l, 0.25);
+        assert_eq!(target_r, 1.0);
     }
 }

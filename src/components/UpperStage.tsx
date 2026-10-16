@@ -1,13 +1,24 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Orbit, ExternalLink } from 'lucide-react';
+import { Orbit, ExternalLink, Sliders } from 'lucide-react';
 import { useTrackStore } from '../store/trackStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useTimelineStore } from '../store/timelineStore';
 import { SpatialRadar3D } from './SpatialRadar3D';
+import { Knob3D } from './Knob3D';
 import type { AutomationLaneId } from '../types/automation';
 
 export const UpperStage: React.FC = () => {
-  const { isPlaying, azimuth, spatialParams, reverbParams, duration, position } = useTrackStore();
+  const {
+    isPlaying,
+    azimuth,
+    balance,
+    setAzimuth,
+    setBalance,
+    spatialParams,
+    reverbParams,
+    duration,
+    position,
+  } = useTrackStore();
   const { timeline, setActiveLane } = useTimelineStore();
   const { setActiveTab } = useWorkspaceStore();
   const [viewMode, setViewMode] = useState<'3D' | 'Top' | 'Front' | 'Side'>('3D');
@@ -40,10 +51,17 @@ export const UpperStage: React.FC = () => {
 
   const degrees = Math.round((visualAngleRef.current * 180) / Math.PI) % 360;
 
+  const getCardinal = (deg: number) => {
+    if (deg >= 315 || deg < 45) return 'Front';
+    if (deg >= 45 && deg < 135) return 'Right';
+    if (deg >= 135 && deg < 225) return 'Rear';
+    return 'Left';
+  };
+
   return (
     <div className="h-72 grid grid-cols-12 gap-3 p-3 bg-transparent select-none">
-      {/* Left: Apple Spatial Radar Stage */}
-      <div className="col-span-5 glass-panel rounded-2xl p-3.5 flex flex-col justify-between relative overflow-hidden">
+      {/* 1. Left: Apple Spatial Radar Stage */}
+      <div className="col-span-4 glass-panel rounded-2xl p-3.5 flex flex-col justify-between relative overflow-hidden">
         {/* Header & View Mode Switcher */}
         <div className="flex items-center justify-between z-10 relative">
           <div className="flex items-center space-x-2 text-zinc-100 font-semibold text-xs tracking-tight">
@@ -61,7 +79,7 @@ export const UpperStage: React.FC = () => {
               <button
                 key={mode}
                 onClick={() => setViewMode(mode)}
-                className={`px-2.5 py-0.5 rounded-md font-medium transition-all cursor-pointer ${
+                className={`px-2 py-0.5 rounded-md font-medium transition-all cursor-pointer ${
                   viewMode === mode
                     ? 'bg-white/15 text-white shadow-xs'
                     : 'text-zinc-400 hover:text-zinc-200'
@@ -101,16 +119,80 @@ export const UpperStage: React.FC = () => {
               Elev: {(spatialParams.elevation ?? 0) > 0.05 ? `+${Math.round(spatialParams.elevation * 100)}%` : (spatialParams.elevation ?? 0) < -0.05 ? `${Math.round(spatialParams.elevation * 100)}%` : '0%'}
             </span>
           </div>
-          <div className="flex items-center space-x-1.5">
-            <span className="glass-pill px-2 py-0.5 rounded-md text-[9px] text-zinc-300 font-medium">
-              Spatial Audio Engine
+        </div>
+      </div>
+
+      {/* 2. Center: Precision 3D Rotary Dials Dock (Azimuth & Balance) */}
+      <div className="col-span-3 glass-panel rounded-2xl p-3.5 flex flex-col justify-between relative overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between pb-2 border-b border-white/[0.06] relative z-10">
+          <div className="flex items-center space-x-2 text-zinc-100 font-semibold text-xs tracking-tight">
+            <div className="w-5 h-5 rounded-md glass-card flex items-center justify-center text-purple-400">
+              <Sliders className="w-3.5 h-3.5" />
+            </div>
+            <span className="text-[12px] text-zinc-200 font-medium">
+              Console Dials
             </span>
+          </div>
+          <span className="glass-pill text-[9px] text-zinc-400 font-mono px-2 py-0.5 rounded-md">
+            Hardware 3D
+          </span>
+        </div>
+
+        {/* Dual 3D Knobs Side-by-Side */}
+        <div className="flex-1 flex items-center justify-around py-1 relative z-10">
+          {/* Knob 1: 3D Spatial Azimuth Dial */}
+          <Knob3D
+            label="3D Azimuth"
+            value={degrees}
+            min={0}
+            max={360}
+            step={1}
+            isContinuous={true}
+            color="#38bdf8"
+            laneId="pan"
+            formatValue={(deg) => `${Math.round(deg)}° ${getCardinal(deg)}`}
+            onChange={(deg) => setAzimuth((deg * Math.PI) / 180)}
+          />
+
+          {/* Divider */}
+          <div className="w-[1px] h-24 bg-white/[0.06]" />
+
+          {/* Knob 2: Stereo Output Balance Trim */}
+          <Knob3D
+            label="L/R Balance"
+            value={balance}
+            min={-1}
+            max={1}
+            step={0.01}
+            isCenterZero={true}
+            defaultValue={0}
+            color="#a855f7"
+            formatValue={(val) => {
+              if (Math.abs(val) < 0.02) return 'C 0%';
+              if (val < 0) return `L ${Math.round(Math.abs(val) * 100)}%`;
+              return `R ${Math.round(val * 100)}%`;
+            }}
+            onChange={(val) => setBalance(val)}
+          />
+        </div>
+
+        {/* Micro-Legend / Function Clarification */}
+        <div className="flex items-center justify-between text-[9px] text-zinc-400 pt-1.5 border-t border-white/[0.06] z-10 font-mono">
+          <div className="flex items-center space-x-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
+            <span className="text-zinc-300">Spatial Angle</span>
+          </div>
+          <span className="text-white/20">•</span>
+          <div className="flex items-center space-x-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-purple-400" />
+            <span className="text-zinc-300">Output Trim</span>
           </div>
         </div>
       </div>
 
-      {/* Right: Live Graph Editor Curves & Automation Monitor */}
-      <div className="col-span-7 glass-panel rounded-2xl p-3.5 flex flex-col justify-between relative overflow-hidden">
+      {/* 3. Right: Live Graph Editor Curves & Automation Monitor */}
+      <div className="col-span-5 glass-panel rounded-2xl p-3.5 flex flex-col justify-between relative overflow-hidden">
         {/* Header Tools */}
         <div className="flex items-center justify-between pb-2 border-b border-white/[0.06] relative z-10">
           <div className="flex items-center space-x-2">

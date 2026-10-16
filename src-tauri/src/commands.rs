@@ -470,4 +470,26 @@ pub fn set_audio_device(
     }
 }
 
+/// Sets stereo console output balance trim [-1.0, 1.0].
+/// -1.0 = Full Left, 0.0 = Center, +1.0 = Full Right.
+#[tauri::command]
+pub fn set_balance(balance: f32, state: State<'_, AppState>) -> Result<(), String> {
+    if let Some(player) = &state.player {
+        player.set_balance(balance);
+        Ok(())
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
+}
+
+/// Retrieves current output balance trim [-1.0, 1.0].
+#[tauri::command]
+pub fn get_balance(state: State<'_, AppState>) -> Result<f32, String> {
+    if let Some(player) = &state.player {
+        Ok(player.get_balance())
+    } else {
+        Ok(0.0)
+    }
+}
+
 

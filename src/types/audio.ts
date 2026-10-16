@@ -80,6 +80,7 @@ export interface TrackState {
 
   // EQ & Volume State
   eqParams: EqParams;
+  balance: number; // -1.0 (Full L) to +1.0 (Full R), 0.0 Center
 
   // Environmental Reverb State
   reverbParams: ReverbParams;
@@ -105,6 +106,7 @@ export interface TrackState {
   setDistance: (distance: number) => Promise<void>;
   setElevation: (elevation: number) => Promise<void>;
   setAzimuth: (azimuth: number) => Promise<void>;
+  setBalance: (balance: number) => Promise<void>;
 
   // EQ Actions
   setEqParams: (params: Partial<EqParams>) => Promise<void>;
