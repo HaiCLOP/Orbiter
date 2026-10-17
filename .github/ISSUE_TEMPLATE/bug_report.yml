@@ -1,0 +1,69 @@
+name: Bug Report
+description: Report an issue, glitch, crash, or unexpected behavior in Orbiter
+labels: ['bug', 'triage']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting an issue! Please provide as much technical context as possible to help us reproduce and fix it.
+  - type: input
+    id: version
+    attributes:
+      label: Orbiter Version
+      description: What version of Orbiter are you running? (e.g. v0.1.0 or git commit hash)
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS (Apple Silicon / M1/M2/M3/M4)
+        - macOS (Intel)
+        - Linux (Ubuntu/Debian)
+        - Linux (Arch/Fedora/Other)
+    validations:
+      required: true
+  - type: input
+    id: audio_device
+    attributes:
+      label: Audio Output Device
+      description: What headphones, speakers, or DAC/interface were you using?
+      placeholder: e.g. AirPods Pro via Bluetooth / Focusrite Scarlett 2i2 / Realtek Audio
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the Bug
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Exact steps to reproduce the behavior.
+      placeholder: |
+        1. Open audio file 'my_track.wav'
+        2. Switch to Spatial tab and drag 3D source dot
+        3. Enable FDN Reverb
+        4. Observe behavior...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: A clear description of what you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Terminal / Console / Panic Logs
+      description: Please paste any output from panic.log or the terminal console if available.
+      render: shell

@@ -1,0 +1,38 @@
+name: Feature Request / RFC
+description: Propose a new DSP stage, UI tool, or capability for Orbiter
+labels: ['enhancement', 'rfc']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Orbiter follows a **Plan-First Engineering Methodology**. Please describe the motivation, mathematical/DSP implications, and real-time thread safety considerations before submitting.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or Creative Goal
+      description: Is your feature request related to a problem or a new creative capability?
+      placeholder: "I'm always frustrated when..." or "I would love to be able to..."
+    validations:
+      required: true
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: Proposed Solution & DSP Architecture
+      description: Describe your proposed solution. If this touches DSP or audio processing, explain the expected behavior and parameter controls.
+    validations:
+      required: true
+  - type: textarea
+    id: real_time_considerations
+    attributes:
+      label: Real-Time Audio & Thread Safety Considerations
+      description: How will this maintain zero heap allocation on the audio callback and lock-free thread safety?
+      placeholder: "Parameters will pass through an AtomicF32 bridge..."
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Any alternative solutions or workarounds you considered.
+    validations:
+      required: false

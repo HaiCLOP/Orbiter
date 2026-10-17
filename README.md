@@ -5,7 +5,8 @@
 </p>
 
 <p align="center">
-  <strong>High-Performance 8D & 3D Spatial Audio Digital Audio Workstation</strong>
+  <strong>High-Precision 8D & 3D Spatial Audio Digital Audio Workstation</strong><br />
+  <em>Real-time binaural spatialization, physical FDN reverberation, Bézier automation, and neural stem separation.</em>
 </p>
 
 <p align="center">
@@ -13,7 +14,8 @@
   <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021%20edition-orange?style=flat-square&logo=rust" alt="Rust" /></a>
   <a href="https://tauri.app/"><img src="https://img.shields.io/badge/tauri-v2.0-blue?style=flat-square&logo=tauri" alt="Tauri 2" /></a>
   <a href="https://react.dev/"><img src="https://img.shields.io/badge/react-19-61dafb?style=flat-square&logo=react" alt="React 19" /></a>
-  <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/typescript-5.x-3178c6?style=flat-square&logo=typescript" alt="TypeScript" /></a>
+  <a href="https://threejs.org/"><img src="https://img.shields.io/badge/three.js-r174-black?style=flat-square&logo=three.js" alt="Three.js" /></a>
+  <a href="https://onnxruntime.ai/"><img src="https://img.shields.io/badge/demucs-v4%20onnx-purple?style=flat-square" alt="Demucs v4" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" /></a>
 </p>
 
@@ -21,77 +23,99 @@
 
 ## 🎧 What is Orbiter?
 
-**Orbiter** is a professional desktop Digital Audio Workstation (DAW) engineered specifically for **real-time 8D and 3D binaural spatial audio composition**. 
+**Orbiter** is an open-source, studio-grade desktop Digital Audio Workstation (DAW) engineered specifically for **real-time 8D and 3D binaural spatial audio composition, mastering, and neural stem decomposition**.
 
-Unlike standard stereo pan tools, Orbiter simulates true human psychoacoustics — combining interaural time differences (ITD), interaural level differences (ILD), pinna spectral cues, atmospheric air absorption, early reflections, and late reverberation into an intuitive interactive 3D soundstage.
+Unlike generic stereo pan plugins, Orbiter models genuine human psychoacoustics:
+- **Interaural Time Differences (ITD)** based on the spherical Woodworth head delay model ($\pm 650\,\mu\text{s}$).
+- **Interaural Level Differences (ILD)** via frequency-dependent acoustic head-shadow attenuation.
+- **Pinna Elevation Filtering** approximating vertical spectral shaping ($\pm 4.0\text{ dB}$ at $8\text{ kHz}$).
+- **Atmospheric Air Absorption & Distance Falloff** with dynamic single-pole lowpass damping.
+- **Physical Feedback Delay Network (FDN-8)** with an orthogonal Hadamard matrix and distance auto-tie.
+- **Neural Source Separation (Demucs v4)** splitting any audio track into Vocals, Drums, Bass, and Other.
 
-Built from the ground up with a custom real-time DSP core in **Rust** (CPAL / Symphonia) and a reactive UI in **Tauri 2**, **React 19**, and **Tailwind CSS**, Orbiter delivers uncompromising audio fidelity with zero-allocation real-time safety.
+Engineered with a **zero-allocation real-time DSP core** in **Rust** (CPAL / Symphonia / Hound / mp3lame) and an **Apple Liquid Glass** UI in **Tauri 2**, **React 19**, **Three.js**, and **Tailwind CSS v4**.
 
 ---
 
 ## 🚀 Key Features
 
-- **8D Binaural Orbital Panner**: Smooth continuous spherical trajectory with dynamic Woodworth interaural time delays (ITD) and head-shadow interaural level differences (ILD).
-- **3D Elevation & Distance Cues**: Vertical pinna spectral shaping (brightening for above, dulling for below) and distance falloff with atmospheric high-frequency air absorption.
-- **FDN-8 Environmental Reverb Tank**: 8-delay-line Feedback Delay Network using an orthogonal Hadamard mixing matrix, per-line absorption damping, and natural distance auto-tying.
-- **4-Band Parametric EQ**: Studio-grade cascaded biquad filters (Low-Cut HPF, High-Cut LPF, Bass Shelf at 100 Hz, Treble Shelf at 10 kHz, and master volume) with dual-state crossfading for click-free parameter sweeps.
-- **Master Dynamics Rack**: 5.0ms pre-allocated lookahead brickwall peak limiter, $C^1$ asymptotic soft-clipper safety ceiling, and input loudness auto-normalization (-1.0 dBFS target).
-- **Multi-Lane Keyframe & Bézier Curve Automation**: Full timeline engine with $O(1)$ 256-entry Newton-Raphson Bézier LUTs driving Azimuth/Pan, Distance, Elevation, Reverb, and Volume live in the audio callback.
-- **Interactive Graph Editor**: High-DPI canvas with draggable keyframe diamonds, Bézier tangent handles, magnetic grid snapping, playhead scrub line, and 5 built-in orbit presets.
-- **Zero-Allocation Audio Thread**: Real-time CPAL callback performs zero heap allocations and zero lock acquisitions (`Ordering::Acquire` / `Release` atomic coefficient handoff).
-- **Latency-Compensated Telemetry**: Visual 3D radar dot, multi-lane graph playhead, and multi-resolution waveform scrubber are clock-compensated for lookahead delay, matching sound arrival at the listener's ears.
-- **Intelligent Audio Device Routing**: Automatically prioritizes connected headphones/earbuds (Bluetooth, AirPods, IEMs) over internal laptop speakers on startup, with real-time live device switching from the top navigation bar.
-- **Tabbed Workspace Architecture**: Dedicated modular views for **Edit**, **Graph**, **Spatial**, **Effects**, and **Render** with contextual property inspector controls.
+### 🌐 1. True 3D Spatial Hologram & Hardware Knobs (Step 8)
+- **Interactive Three.js 3D Soundstage**: Real 3D scene with camera presets (**3D**, **Top**, **Front**, **Side**), orbit grid rings, and central head model.
+- **Spherical Raycast Dragging**: Drag the sound source dot freely across 3D space with continuous azimuth, elevation, and distance mapping.
+- **Blender 3D Hardware Knobs**: Detailed 3D hardware dials modeled in Blender with brushed metal textures and responsive rotation for **Azimuth/Pan** and **Master L/R Balance**.
+
+### 🤖 2. Neural Stem Separation (Meta HT-Demucs v4) (Step 11)
+- **On-Device Source Separation**: Decomposes any song into 4 isolated stems: **Vocals**, **Drums**, **Bass**, and **Other**.
+- **Click-Free Overlap-Add (OLA)**: $25\%$ chunk overlap with linear crossfade mathematically verified click-free ($<10^{-5}$ error).
+- **Interactive Mini-Waveforms & Audition**: Instant 500-bin visual waveforms with built-in preview player.
+- **1-Click "Send to 8D" Studio Handoff**: Instantly load any isolated stem into the 3D spatial editor for dedicated spatialization.
+
+### 📈 3. Multi-Lane Bézier Automation & Graph Editor (Step 7)
+- **Per-Sample Automated DSP**: Real-time evaluation of Azimuth, Elevation, Distance, Reverb Amount, and Volume at audio clock rate.
+- **$O(1)$ 256-Entry Newton-Raphson Bézier LUTs**: Monotonic cubic interpolation evaluated in the native audio callback with zero heap allocations.
+- **Visual Graph Editor**: High-DPI canvas with draggable keyframe diamonds, Bézier tangent handles, magnetic grid snapping, and 5 built-in orbit presets (*Circle*, *Ellipse*, *Figure-8*, *Spiral In/Out*, *Vertical Pendulum*).
+
+### 🏛️ 4. Physical FDN-8 Environmental Reverb Tank (Step 5)
+- **8 Mutually Prime Delay Lines**: Mixed using an $8 \times 8$ orthogonal Hadamard feedback matrix for high echo density without metallic ringing.
+- **Per-Line Damping**: Simulates wall absorption materials with adjustable decay times from $0.2\text{s}$ to $12.0\text{s}$.
+- **Distance Auto-Tie**: Automatically scales wet reflections based on virtual 3D distance from the listener.
+
+### 🎚️ 5. 4-Band Parametric EQ & Dynamics Rack (Steps 3 & 6)
+- **Cascasded Robert Bristow-Johnson Biquads**: Low-Cut HPF (20–500 Hz), High-Cut LPF (2–20 kHz), Bass Shelf ($\pm 12\text{ dB}$ at 100 Hz), and Treble Shelf ($\pm 12\text{ dB}$ at 10 kHz).
+- **128-Sample Dual-State Crossfading**: Glitch-free, click-free parameter sweeps.
+- **Master Peak Limiter**: 5.0ms lookahead ring buffer with instantaneous attack, $150\text{ ms}$ exponential release, and $C^1$ smooth soft-clipper at 0.0 dBFS.
+
+### 💾 6. Project Persistence (`.orb8d`) & Offline Export (Steps 9 & 10)
+- **Session File Format (`.orb8d`)**: Portable JSON project schema preserving audio references, all DSP states, keyframe curves, and UI workspace layouts with schema versioning.
+- **Non-Destructive Asset Relinking**: Built-in asset relink dialog if source audio files are moved.
+- **Bit-Exact Offline Rendering**: Uses the unified `SpatialDspChain` ensuring zero divergence between live audio playback and rendered export.
+- **Multi-Format Export**: 16/24-bit PCM WAV (via `hound`) and 128–320 kbps MP3 (via `mp3lame-encoder`).
 
 ---
 
-## 📐 DSP Signal Processing Architecture
-
-Every sample passes through an optimized 7-stage real-time DSP pipeline:
+## 📐 Real-Time DSP Signal Pipeline
 
 ```mermaid
 flowchart LR
-    A["Raw Audio Input\n(Symphonia Decoder)"] --> B["0. Auto-Normalize\n(-1.0 dBFS Headroom)"]
-    B --> C["1. 8D Panner\n(Azimuth ITD + ILD)"]
+    A["Raw Audio Input\n(Symphonia Decoder)"] --> B["0. Auto-Normalize\n(-1.0 dBFS Target)"]
+    B --> C["1. 8D Panner\n(Woodworth ITD + ILD)"]
     C --> D["2. 3D Elevation\n(Pinna Filter)"]
     D --> E["3. 3D Distance\n(Falloff + Air LPF)"]
     E --> F["4. FDN-8 Reverb\n(Early Refl + Tank)"]
     F --> G["5. 4-Band EQ\n(HPF/LPF/Shelves)"]
     G --> H["6. Master Limiter\n(5ms Lookahead)"]
-    H --> I["DAC Hardware Out\n(CPAL Stereo)"]
+    H --> I["7. Balance Trim\n(L/R Multiplier)"]
+    I --> J["DAC Output\n(CPAL Stereo)"]
     
     subgraph AutomationEngine ["Keyframe Automation Engine (Step 7)"]
-        K1["Pan Lane (Azimuth)"] -.-> C
+        K1["Azimuth / Pan Lane"] -.-> C
         K2["Elevation Lane"] -.-> D
         K3["Distance Lane"] -.-> E
-        K4["Reverb Lane"] -.-> F
+        K4["Reverb Amount Lane"] -.-> F
         K5["Volume Lane"] -.-> G
     end
 ```
 
-### Stage Details
+---
 
-| Order | DSP Stage | Acoustic Function & Mathematics | Live Controls |
-| :---: | :--- | :--- | :--- |
-| **0** | **Input Normalize** | Targets $-1.0\text{ dBFS}$ raw track peak loudness. Sets consistent input headroom; downstream boosts are caught by the limiter. | Toggle (On / Off) |
-| **1** | **8D Binaural Panner** | Spherical head model: $\text{ITD}(\theta) = \frac{r}{c}(\theta + \sin\theta)$ (up to $\pm 650\,\mu\text{s}$) + frequency-dependent ILD head shadow. Automated by Pan lane ($-\pi$ to $+\pi$). | Speed (0.01–5.0 Hz), Intensity (0–100%), Azimuth Keyframes |
-| **2** | **3D Elevation** | Approximates vertical pinna cues using a dual-state 128-sample crossfaded peaking biquad ($\pm 4.0\text{ dB}$ at $8\text{ kHz}$). | Elevation (-1.0 Below to +1.0 Above) |
-| **3** | **3D Distance** | Inverse-square distance attenuation combined with dynamic 1-pole high-cut filter modeling atmospheric air absorption. | Distance (0.0 Near to 1.0 Far) |
-| **4** | **FDN-8 Reverb Tank** | Decorrelated stereo early reflections + 8 mutually prime delay lines mixed with an $8 \times 8$ Hadamard matrix. Distance auto-tie scales wet mix. | Room Size (0–100%), Decay RT60 (0.2–12s), Amount |
-| **5** | **4-Band Parametric EQ** | Cascaded Robert Bristow-Johnson biquad filters: Low Cut (20–500 Hz), High Cut (2–20 kHz), Bass Shelf ($\pm 12\text{ dB}$), Treble Shelf ($\pm 12\text{ dB}$). | HPF Hz, LPF kHz, Bass dB, Treble dB, Master Vol |
-| **6** | **Master Dynamics** | 5.0ms lookahead ring buffer, instantaneous transient attack, 1-pole exponential release ($150\text{ ms}$ default), and $C^1$ smooth soft-clipper. | Limiter Enable, Ceiling dBFS, Release ms |
+## 🛡️ Privacy & Zero-Telemetry Guarantee
+
+Orbiter is committed to transparency and user privacy:
+- **Zero Analytics**: No telemetry, Google Analytics, Sentry, or tracking beacons.
+- **100% On-Device Processing**: Audio decoding, DSP modulation, timeline evaluation, rendering, and Demucs stem inference run entirely on your local CPU/GPU hardware.
+- **Network Boundaries**: Orbiter makes zero network requests. The only network call in the entire application occurs when the user explicitly clicks "Download Model" in the Stems tab to fetch the 166 MB Demucs weights from Hugging Face with SHA-256 verification.
+
+See [PRIVACY.md](PRIVACY.md) for full details.
 
 ---
 
-## 🛠 Tech Stack
+## 💻 Platform Support Matrix
 
-- **Audio DSP Core**: Rust (`cpal`, `symphonia`, `std::sync::atomic`)
-- **Desktop Bridge**: Tauri v2
-- **UI Framework**: React 19, TypeScript
-- **Styling**: Tailwind CSS
-- **State Management**: Zustand
-- **Icons & UI Primitives**: Lucide React
-- **Build Tooling**: Vite 8, Cargo
+| Platform | Architecture | Audio Backend | Hardware Acceleration | Status |
+|---|---|---|---|:---:|
+| **Windows 10 / 11** | x86_64 | WASAPI / DirectSound | DirectML / DirectX 12 / AVX2 | ✅ Supported |
+| **macOS 12+** | Apple Silicon (M-series) & Intel | CoreAudio | CoreML / Metal / Accelerate | ✅ Supported |
+| **Linux (Ubuntu/Debian/Arch)** | x86_64 | ALSA / PipeWire | Multi-Threaded AVX2 / OpenMP | ✅ Supported |
 
 ---
 
@@ -99,73 +123,70 @@ flowchart LR
 
 ### Prerequisites
 
-1. **Rust**: Stable 2021 edition (`rustup update`)
-2. **Node.js**: v18+ and `npm`
-3. **OS Audio Drivers**: DirectSound / WASAPI (Windows), CoreAudio (macOS), or ALSA / PipeWire (Linux)
+1. **Rust Toolchain**: Stable 1.80+ (`rustup update`)
+2. **Node.js**: v20 or later (`node -v`) and `npm`
+3. **Platform Dependencies**:
+   - **Windows**: Visual Studio C++ Build Tools with Windows 10/11 SDK.
+   - **macOS**: Xcode Command Line Tools (`xcode-select --install`).
+   - **Linux**: WebKit2GTK and ALSA development libraries:
+     ```bash
+     sudo apt-get update && sudo apt-get install -y \
+       libwebkit2gtk-4.1-dev \
+       libasound2-dev \
+       libssl-dev \
+       build-essential \
+       curl wget file
+     ```
 
 ### Installation & Development
 
 ```bash
-# Clone the repository
+# 1. Clone repository
 git clone https://github.com/HaiCLOP/Orbiter.git
 cd Orbiter
 
-# Install frontend dependencies
+# 2. Install frontend dependencies
 npm install
 
-# Run in desktop development mode (with Hot Module Replacement)
+# 3. Launch desktop development mode (with Vite HMR)
 npm run tauri dev
 ```
 
 ### Production Release Build
 
+To build native release installers (`.msi` / `.exe` on Windows, `.dmg` on macOS, `.AppImage` on Linux):
+
 ```bash
 # Build optimized desktop production release
 npm run build
-cd src-tauri
-cargo build --release
+npm run tauri build
 ```
-
-The compiled native executable will be located at:
-- **Windows**: `src-tauri/target/release/orbiter.exe`
-- **macOS**: `src-tauri/target/release/bundle/macos/orbiter`
-- **Linux**: `src-tauri/target/release/orbiter`
 
 ---
 
-## 🧪 Automated Testing
+## 🧪 Automated Testing Suite
 
-Orbiter includes an extensive automated test suite covering filter stability, brickwall limiter overshoot clamping, matrix orthogonality, Bézier LUT monotonic continuity, and click-free parameter sweeps:
+Orbiter includes **38 native automated unit tests** verifying filter stability, brickwall limiter overshoot clamping, FDN matrix orthogonality, Bézier LUT monotonic continuity, Demucs overlap-add click-free reconstruction, and bit-exact live/offline parity:
 
 ```bash
 cd src-tauri
-cargo test
+cargo test --all
 ```
 
-All 33 native audio DSP unit tests verify:
-- Invariant bounds under extreme parameter modulation
-- Bit-accurate unity bypass when stages are centered or disabled
-- Monotonic exponential release and energy dissipation in reverberation
-- Newton-Raphson Bézier LUT boundary convergence and binary search resolution
-- Zero dynamic memory allocations during processing
+All 38 tests pass with 0 failures:
+- `test_live_and_offline_dsp_parity_with_automation`: Bit-exact identity between live audio playback and offline rendering under active timeline automation.
+- `test_demucs_overlap_add_reconstruction_click_free`: Verifies $25\%$ overlap-add linear crossfade has $<10^{-5}$ seam error and zero audible clicks.
+- `test_brickwall_limiter_clamps_overshoots`: Guarantees zero sample overshoots above ceiling.
+- `test_fdn_matrix_orthogonality`: Verifies energy conservation in the $8 \times 8$ Hadamard matrix.
 
 ---
 
-## 🗺 Roadmap & Milestones
+## 🤝 Contributing
 
-- [x] **Step 0**: Tauri 2 + Rust + React 19 workspace scaffolding
-- [x] **Step 1**: Symphonia multi-format audio decoding & dual-channel peak envelope extraction
-- [x] **Step 2**: Real-time CPAL output stream & 8D binaural rotating panner (ITD/ILD)
-- [x] **Step 3**: 4-Band cascaded parametric EQ with click-free dual-state biquad crossfading
-- [x] **Step 4**: 3D distance falloff, atmospheric air absorption, and elevation pinna cues
-- [x] **Step 5**: FDN-8 environmental reverb tank, distance auto-tie, and 5-tab workspace UI
-- [x] **Step 6**: Master Dynamics Rack (5ms lookahead brickwall limiter + input normalize)
-- [x] **Step 7**: Multi-lane keyframe curve automation editor (Graph tab & 5 Orbit Presets)
-- [ ] **Step 8**: Offline full-speed non-realtime export to WAV / FLAC (Render tab)
-- [ ] **Step 9**: Spatial presets library & master soundstage polish
+We welcome community contributions! Please read our [CONTRIBUTING.md](CONTRIBUTING.md) guide before submitting PRs. Orbiter follows a **Plan-First Engineering Discipline**: every feature proposal must be vetted for real-time audio safety and mathematical stability before code is written.
 
 ---
 
 ## 📄 License
 
-Distributed under the MIT License. See `LICENSE` for details.
+Distributed under the **MIT License**. See [LICENSE](LICENSE) for details.
