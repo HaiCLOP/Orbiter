@@ -11,6 +11,7 @@ import { EffectsView } from './components/views/EffectsView';
 import { EditView } from './components/views/EditView';
 import { GraphView } from './components/views/GraphView';
 import { RenderView } from './components/views/RenderView';
+import { StemsView } from './components/views/StemsView';
 import { AlertTriangle, X } from 'lucide-react';
 import { isTauri } from '@tauri-apps/api/core';
 import type { PlaybackTick } from './types/audio';
@@ -74,6 +75,7 @@ export const App: React.FC = () => {
           {activeTab === 'Effects' && <EffectsView />}
           {activeTab === 'Edit' && <EditView />}
           {activeTab === 'Graph' && <GraphView />}
+          {activeTab === 'Stems' && <StemsView />}
           {activeTab === 'Render' && <RenderView />}
 
           {/* Persistent Global Transport Bar */}

@@ -5,6 +5,7 @@ pub mod export;
 pub mod models;
 pub mod project;
 pub mod state;
+pub mod stems;
 pub mod timeline;
 
 use std::time::Duration;
@@ -92,6 +93,11 @@ pub fn run() {
             commands::select_export_destination,
             commands::start_export,
             commands::cancel_export,
+            commands::check_stem_model_status,
+            commands::download_stem_model,
+            commands::cancel_stem_model_download,
+            commands::start_stem_separation,
+            commands::cancel_stem_separation,
         ])
         .run(tauri::generate_context!());
 

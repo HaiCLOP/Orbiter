@@ -9,6 +9,8 @@ pub struct AppState {
     pub current_track: Mutex<Option<TrackInfo>>,
     pub export_cancel_flag: Arc<RwLock<Option<Arc<AtomicBool>>>>,
     pub current_project_path: Arc<RwLock<Option<String>>>,
+    pub stem_cancel_flag: Arc<RwLock<Option<Arc<AtomicBool>>>>,
+    pub model_download_cancel_flag: Arc<RwLock<Option<Arc<AtomicBool>>>>,
 }
 
 impl AppState {
@@ -26,6 +28,8 @@ impl AppState {
             current_track: Mutex::new(None),
             export_cancel_flag: Arc::new(RwLock::new(None)),
             current_project_path: Arc::new(RwLock::new(None)),
+            stem_cancel_flag: Arc::new(RwLock::new(None)),
+            model_download_cancel_flag: Arc::new(RwLock::new(None)),
         }
     }
 }

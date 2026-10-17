@@ -10,6 +10,11 @@ use crate::models::{
     ProjectFile, ReverbParams, Spatial8DParams, TrackInfo,
 };
 use crate::state::AppState;
+use crate::stems::{
+    downloader::{check_model_status, download_model},
+    separator::run_stem_separation,
+    StemModelStatus, StemSeparationProgress, StemSeparationSettings,
+};
 use crate::timeline::{AutomationLaneId, Keyframe, TimelineState};
 
 /// Opens a native desktop file dialog to pick an audio file.
@@ -653,6 +658,119 @@ pub fn cancel_export(state: State<'_, AppState>) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Returns the Demucs ONNX model status (downloaded, file size, execution provider).
+#[tauri::command]
+pub fn check_stem_model_status() -> Result<StemModelStatus, String> {
+    Ok(check_model_status())
+}
+
+/// Initiates streaming download of Demucs v4 ONNX model (~166 MB) with SHA-256 verification.
+#[tauri::command]
+pub async fn download_stem_model(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    // Cancel any ongoing download
+    if let Ok(guard) = state.model_download_cancel_flag.read() {
+        if let Some(flag) = guard.as_ref() {
+            flag.store(true, Ordering::Relaxed);
+        }
+    }
+
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    if let Ok(mut guard) = state.model_download_cancel_flag.write() {
+        *guard = Some(Arc::clone(&cancel_flag));
+    }
+
+    download_model(app, cancel_flag).await
+}
+
+/// Cancels ongoing model download.
+#[tauri::command]
+pub fn cancel_stem_model_download(state: State<'_, AppState>) -> Result<(), String> {
+    if let Ok(guard) = state.model_download_cancel_flag.read() {
+        if let Some(flag) = guard.as_ref() {
+            flag.store(true, Ordering::Relaxed);
+        }
+    }
+    Ok(())
+}
+
+/// Starts Demucs stem separation on the currently loaded track buffer in a background thread.
+#[tauri::command]
+pub async fn start_stem_separation(
+    settings: StemSeparationSettings,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let player = state.player.as_ref().ok_or("Audio player engine unavailable")?;
+    let buffer = player.get_buffer().ok_or("No audio file loaded to separate")?;
+
+    let track_path = {
+        let guard = state.current_track.lock().map_err(|e| e.to_string())?;
+        guard
+            .as_ref()
+            .map(|t| t.file_path.clone())
+            .unwrap_or_else(|| "track.wav".to_string())
+    };
+
+    // Cancel any ongoing separation
+    if let Ok(guard) = state.stem_cancel_flag.read() {
+        if let Some(flag) = guard.as_ref() {
+            flag.store(true, Ordering::Relaxed);
+        }
+    }
+
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    if let Ok(mut guard) = state.stem_cancel_flag.write() {
+        *guard = Some(Arc::clone(&cancel_flag));
+    }
+
+    let app_handle = app.clone();
+    std::thread::spawn(move || {
+        match run_stem_separation(
+            app_handle.clone(),
+            buffer,
+            track_path,
+            settings,
+            cancel_flag,
+        ) {
+            Ok(result) => {
+                let _ = app_handle.emit("stem-separation-finished", &result);
+            }
+            Err(e) => {
+                log::error!("Demucs stem separation error: {e}");
+                let _ = app_handle.emit(
+                    "stem-separation-progress",
+                    StemSeparationProgress {
+                        current_chunk: 0,
+                        total_chunks: 0,
+                        percentage: 0.0,
+                        elapsed_sec: 0.0,
+                        eta_sec: 0.0,
+                        status: "error".into(),
+                        error: Some(e),
+                    },
+                );
+            }
+        }
+    });
+
+    Ok(())
+}
+
+/// Cancels currently running stem separation.
+#[tauri::command]
+pub fn cancel_stem_separation(state: State<'_, AppState>) -> Result<(), String> {
+    if let Ok(guard) = state.stem_cancel_flag.read() {
+        if let Some(flag) = guard.as_ref() {
+            flag.store(true, Ordering::Relaxed);
+        }
+    }
+    Ok(())
+}
+
 
 
 

@@ -22,7 +22,7 @@ export const TopNav: React.FC = () => {
   const [fileMenuOpen, setFileMenuOpen] = useState(false);
   const fileMenuRef = useRef<HTMLDivElement>(null);
 
-  const viewTabs: WorkspaceTab[] = ['Spatial', 'Effects', 'Graph', 'Edit', 'Render'];
+  const viewTabs: WorkspaceTab[] = ['Spatial', 'Effects', 'Graph', 'Edit', 'Stems', 'Render'];
 
   // Project title display (e.g. "my_song.orb8d" or "Untitled Project")
   const projectTitle = currentFilePath

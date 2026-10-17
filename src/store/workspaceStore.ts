@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type WorkspaceTab = 'Edit' | 'Graph' | 'Spatial' | 'Effects' | 'Render';
+export type WorkspaceTab = 'Edit' | 'Graph' | 'Spatial' | 'Effects' | 'Stems' | 'Render';
 
 interface WorkspaceState {
   activeTab: WorkspaceTab;
