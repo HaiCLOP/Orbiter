@@ -1,10 +1,13 @@
 use std::path::Path;
-use tauri::{AppHandle, State};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::decode::{decode_audio_file, generate_waveform_peaks};
 use crate::models::{
-    AudioDeviceInfo, DynamicsParams, EqParams, ReverbParams, Spatial8DParams, TrackInfo,
+    AudioDeviceInfo, DspProjectState, DynamicsParams, EqParams, ExportProgress, ExportSettings,
+    ProjectFile, ReverbParams, Spatial8DParams, TrackInfo,
 };
 use crate::state::AppState;
 use crate::timeline::{AutomationLaneId, Keyframe, TimelineState};
@@ -491,5 +494,165 @@ pub fn get_balance(state: State<'_, AppState>) -> Result<f32, String> {
         Ok(0.0)
     }
 }
+
+/// Saves current project state to .orb8d file.
+/// If path is None, prompts user with a native file save dialog.
+#[tauri::command]
+pub async fn save_project(
+    path: Option<String>,
+    project: ProjectFile,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<String, String> {
+    let target_path = match path {
+        Some(p) if !p.trim().is_empty() => p,
+        _ => {
+            let chosen = app
+                .dialog()
+                .file()
+                .add_filter("Orbiter Project", &["orb8d"])
+                .blocking_save_file();
+            match chosen {
+                Some(p) => p.to_string(),
+                None => return Err("Save cancelled by user".to_string()),
+            }
+        }
+    };
+
+    crate::project::save_project_to_disk(&target_path, &project)?;
+
+    if let Ok(mut lock) = state.current_project_path.write() {
+        *lock = Some(target_path.clone());
+    }
+
+    Ok(target_path)
+}
+
+/// Loads an .orb8d project file.
+/// If path is None, prompts user with a native file open dialog.
+#[tauri::command]
+pub async fn load_project(
+    path: Option<String>,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<ProjectFile, String> {
+    let chosen_path = match path {
+        Some(p) if !p.trim().is_empty() => p,
+        _ => {
+            let chosen = app
+                .dialog()
+                .file()
+                .add_filter("Orbiter Project", &["orb8d"])
+                .blocking_pick_file();
+            match chosen {
+                Some(p) => p.to_string(),
+                None => return Err("Open cancelled by user".to_string()),
+            }
+        }
+    };
+
+    let project = crate::project::load_project_from_disk(&chosen_path)?;
+
+    if let Ok(mut lock) = state.current_project_path.write() {
+        *lock = Some(chosen_path);
+    }
+
+    Ok(project)
+}
+
+/// Retrieves the current active project path if one is open/saved.
+#[tauri::command]
+pub fn get_current_project_path(state: State<'_, AppState>) -> Result<Option<String>, String> {
+    if let Ok(lock) = state.current_project_path.read() {
+        Ok(lock.clone())
+    } else {
+        Ok(None)
+    }
+}
+
+/// Opens native file dialog for selecting an export destination file.
+#[tauri::command]
+pub async fn select_export_destination(
+    format_type: String,
+    app: AppHandle,
+) -> Result<Option<String>, String> {
+    let ext = match format_type.to_lowercase().as_str() {
+        "mp3" => "mp3",
+        _ => "wav",
+    };
+
+    let chosen = app
+        .dialog()
+        .file()
+        .add_filter(if ext == "mp3" { "MP3 Audio" } else { "WAV Audio" }, &[ext])
+        .blocking_save_file();
+
+    Ok(chosen.map(|p| p.to_string()))
+}
+
+/// Starts offline non-realtime rendering to disk.
+#[tauri::command]
+pub async fn start_export(
+    settings: ExportSettings,
+    dsp_state: DspProjectState,
+    timeline: TimelineState,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let player = state.player.as_ref().ok_or("Audio player engine unavailable")?;
+    let buffer = player.get_buffer().ok_or("No audio file loaded to export")?;
+
+    // Cancel any currently running export
+    if let Ok(guard) = state.export_cancel_flag.read() {
+        if let Some(flag) = guard.as_ref() {
+            flag.store(true, Ordering::Relaxed);
+        }
+    }
+
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    if let Ok(mut guard) = state.export_cancel_flag.write() {
+        *guard = Some(Arc::clone(&cancel_flag));
+    }
+
+    let app_handle = app.clone();
+    std::thread::spawn(move || {
+        if let Err(e) = crate::export::run_offline_export(
+            app_handle.clone(),
+            buffer,
+            dsp_state,
+            timeline,
+            settings,
+            cancel_flag,
+        ) {
+            log::error!("Offline export error: {e}");
+            let _ = app_handle.emit(
+                "export-progress",
+                ExportProgress {
+                    progress: 0.0,
+                    elapsed_sec: 0.0,
+                    eta_sec: 0.0,
+                    current_frame: 0,
+                    total_frames: 0,
+                    status: "error".into(),
+                    error: Some(e),
+                },
+            );
+        }
+    });
+
+    Ok(())
+}
+
+/// Cancels currently running offline export.
+#[tauri::command]
+pub fn cancel_export(state: State<'_, AppState>) -> Result<(), String> {
+    if let Ok(guard) = state.export_cancel_flag.read() {
+        if let Some(flag) = guard.as_ref() {
+            flag.store(true, Ordering::Relaxed);
+        }
+    }
+    Ok(())
+}
+
 
 

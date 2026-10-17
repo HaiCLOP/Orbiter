@@ -14,6 +14,7 @@ import { RenderView } from './components/views/RenderView';
 import { AlertTriangle, X } from 'lucide-react';
 import { isTauri } from '@tauri-apps/api/core';
 import type { PlaybackTick } from './types/audio';
+import { AudioRelinkModal } from './components/AudioRelinkModal';
 
 export const App: React.FC = () => {
   const { error, clearError, updateTick } = useTrackStore();
@@ -82,6 +83,9 @@ export const App: React.FC = () => {
         {/* Right Inspector: Audio Clip Properties & Contextual Tab Controls */}
         <PropertiesPanel />
       </div>
+
+      {/* Non-destructive Missing Audio Relink Modal */}
+      <AudioRelinkModal />
     </div>
   );
 };

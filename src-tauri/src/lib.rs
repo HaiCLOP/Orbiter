@@ -1,7 +1,9 @@
 pub mod commands;
 pub mod decode;
 pub mod engine;
+pub mod export;
 pub mod models;
+pub mod project;
 pub mod state;
 pub mod timeline;
 
@@ -84,6 +86,12 @@ pub fn run() {
             commands::set_audio_device,
             commands::set_balance,
             commands::get_balance,
+            commands::save_project,
+            commands::load_project,
+            commands::get_current_project_path,
+            commands::select_export_destination,
+            commands::start_export,
+            commands::cancel_export,
         ])
         .run(tauri::generate_context!());
 

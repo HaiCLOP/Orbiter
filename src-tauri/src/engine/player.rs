@@ -3,11 +3,10 @@ use std::sync::{Arc, RwLock};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Stream, StreamConfig};
 use crate::engine::biquad::BiquadCoeffs;
-use crate::engine::dynamics::{DynamicsBridge, DynamicsStage};
-use crate::engine::eq_stage::EqStage;
-use crate::engine::reverb::{ReverbBridge, ReverbStage};
-use crate::engine::spatial_3d::{DistanceStage, ElevationStage, Spatial3DBridge};
-use crate::engine::Panner;
+use crate::engine::dynamics::DynamicsBridge;
+use crate::engine::reverb::ReverbBridge;
+use crate::engine::spatial_3d::Spatial3DBridge;
+use crate::engine::SpatialDspChain;
 use crate::models::{
     AudioBuffer, AudioDeviceInfo, DynamicsParams, EqParams, ReverbParams, Spatial8DParams,
 };
@@ -347,31 +346,16 @@ impl AudioPlayer {
 
         let dev_rate = sample_rate as f64;
         let mut fractional_playhead: f64 = cb_playhead.load(Ordering::Acquire) as f64;
-        let mut panner = Panner::new(sample_rate as f32);
-        let mut elevation_stage = ElevationStage::new(sample_rate as f32);
-        let mut distance_stage = DistanceStage::new(sample_rate as f32);
+        let mut dsp_chain = SpatialDspChain::new(sample_rate as f32);
         let mut local_spatial_3d_version: u32 = 0;
-        let mut reverb_stage = ReverbStage::new(sample_rate as f32);
         let mut local_reverb_version: u32 = 0;
-        let mut eq_stage = EqStage::new(sample_rate as f32);
         let mut local_eq_version: u32 = 0;
-        let mut dynamics_stage = DynamicsStage::new(sample_rate as f32);
         let mut local_dynamics_version: u32 = 0;
         let mut local_timeline = {
             let g = cb_timeline_bridge.timeline.read().unwrap();
             Arc::clone(&*g)
         };
         let mut local_timeline_version: u32 = 1;
-        let mut prev_pan_automated = false;
-        let mut prev_elev_automated = false;
-        let mut prev_dist_automated = false;
-        let mut prev_rev_automated = false;
-        let mut prev_vol_automated = false;
-        let mut current_norm_gain: f32 = 1.0;
-        let norm_smooth_alpha = 1.0 - (-1.0 / (0.025 * sample_rate as f32)).exp();
-        let mut current_bal_gain_l: f32 = 1.0;
-        let mut current_bal_gain_r: f32 = 1.0;
-        let bal_smooth_alpha = 1.0 - (-1.0 / (0.015 * sample_rate as f32)).exp();
 
         let stream = device
             .build_output_stream(
@@ -410,9 +394,9 @@ impl AudioPlayer {
                     let speed = f32::from_bits(cb_rotation_speed.load(Ordering::Acquire));
                     let intens = f32::from_bits(cb_intensity.load(Ordering::Acquire));
 
-                    panner.set_enabled(enabled_8d);
-                    panner.set_speed(speed);
-                    panner.set_intensity(intens);
+                    dsp_chain.panner.set_enabled(enabled_8d);
+                    dsp_chain.panner.set_speed(speed);
+                    dsp_chain.panner.set_intensity(intens);
 
                     // 2. Acquire 3D Distance and Elevation updates
                     let s3d_ver = cb_spatial_3d_bridge.version.load(Ordering::Acquire);
@@ -433,8 +417,8 @@ impl AudioPlayer {
                             a2: f32::from_bits(cb_spatial_3d_bridge.elev_a2.load(Ordering::Relaxed)),
                         };
                         let dist_gain = f32::from_bits(cb_spatial_3d_bridge.target_gain.load(Ordering::Relaxed));
-                        distance_stage.set_precalculated(dist_gain, air);
-                        elevation_stage.set_precalculated(elev);
+                        dsp_chain.distance_stage.set_precalculated(dist_gain, air);
+                        dsp_chain.elevation_stage.set_precalculated(elev);
                     }
 
                     // 3. Acquire Reverb parameters
@@ -442,10 +426,10 @@ impl AudioPlayer {
                     if rev_ver != local_reverb_version {
                         local_reverb_version = rev_ver;
                         let p = cb_reverb_bridge.get_params();
-                        reverb_stage.set_params(&p);
+                        dsp_chain.reverb_stage.set_params(&p);
                     }
                     let cur_dist = cb_spatial_3d_bridge.get_distance();
-                    reverb_stage.set_distance(cur_dist);
+                    dsp_chain.reverb_stage.set_distance(cur_dist);
 
                     // 4. Acquire EQ parameters and coefficient updates
                     let eq_ver = cb_eq_bridge.version.load(Ordering::Acquire);
@@ -479,18 +463,18 @@ impl AudioPlayer {
                             a1: f32::from_bits(cb_eq_bridge.ts_a1.load(Ordering::Relaxed)),
                             a2: f32::from_bits(cb_eq_bridge.ts_a2.load(Ordering::Relaxed)),
                         };
-                        eq_stage.set_coefficients(lc, hc, bs, ts);
+                        dsp_chain.eq_stage.set_coefficients(lc, hc, bs, ts);
                     }
 
                     let vol = f32::from_bits(cb_eq_bridge.master_volume.load(Ordering::Acquire));
-                    eq_stage.set_target_volume(vol);
+                    dsp_chain.eq_stage.set_target_volume(vol);
 
                     // 5. Acquire Dynamics parameters and normalize updates
                     let dyn_ver = cb_dynamics_bridge.version.load(Ordering::Acquire);
                     if dyn_ver != local_dynamics_version {
                         local_dynamics_version = dyn_ver;
                         let dp = cb_dynamics_bridge.get_params();
-                        dynamics_stage.set_params(&dp);
+                        dsp_chain.dynamics_stage.set_params(&dp);
                     }
                     let norm_enabled = cb_dynamics_bridge.normalize_enabled.load(Ordering::Acquire);
                     let target_norm_gain = if norm_enabled {
@@ -513,6 +497,14 @@ impl AudioPlayer {
                     let total_src_frames = audio_buf.total_frames();
                     let rate_ratio = src_rate / dev_rate;
                     let out_channels = channels as usize;
+
+                    let manual_az = cb_spatial_3d_bridge.get_manual_azimuth();
+                    let manual_az_enabled = cb_spatial_3d_bridge.manual_azimuth_enabled.load(Ordering::Acquire);
+                    let fallback_elev = cb_spatial_3d_bridge.get_elevation();
+                    let fallback_dist = cb_spatial_3d_bridge.get_distance();
+                    let fallback_rev = cb_reverb_bridge.get_params().amount;
+                    let fallback_vol = f32::from_bits(cb_eq_bridge.master_volume.load(Ordering::Acquire));
+                    let target_balance = f32::from_bits(cb_balance.load(Ordering::Relaxed));
 
                     // 7. Fill hardware output buffer
                     for frame_chunk in output_data.chunks_mut(out_channels) {
@@ -538,86 +530,22 @@ impl AudioPlayer {
                         let out_l = cur_l + alpha * (next_l - cur_l);
                         let out_r = cur_r + alpha * (next_r - cur_r);
 
-                        // Automation lane evaluations with click-free fallback to manual controls
                         let t_sec = fractional_playhead / src_rate;
 
-                        if let Some(pan_val) = local_timeline.pan.evaluate(t_sec) {
-                            panner.set_azimuth_override(Some(pan_val * std::f32::consts::PI));
-                            prev_pan_automated = true;
-                        } else if prev_pan_automated || cb_spatial_3d_bridge.manual_azimuth_enabled.load(Ordering::Acquire) {
-                            if let Some(man_az) = cb_spatial_3d_bridge.get_manual_azimuth() {
-                                panner.set_azimuth_override(Some(man_az));
-                            } else {
-                                panner.set_azimuth_override(None);
-                            }
-                            prev_pan_automated = false;
-                        }
-
-                        if let Some(elev_val) = local_timeline.elevation.evaluate(t_sec) {
-                            elevation_stage.set_elevation(elev_val);
-                            prev_elev_automated = true;
-                        } else if prev_elev_automated {
-                            elevation_stage.set_elevation(cb_spatial_3d_bridge.get_elevation());
-                            prev_elev_automated = false;
-                        }
-
-                        if let Some(dist_val) = local_timeline.distance.evaluate(t_sec) {
-                            distance_stage.set_distance(dist_val);
-                            prev_dist_automated = true;
-                        } else if prev_dist_automated {
-                            distance_stage.set_distance(cb_spatial_3d_bridge.get_distance());
-                            prev_dist_automated = false;
-                        }
-
-                        if let Some(rev_amount) = local_timeline.reverb.evaluate(t_sec) {
-                            reverb_stage.set_amount(rev_amount);
-                            prev_rev_automated = true;
-                        } else if prev_rev_automated {
-                            reverb_stage.set_amount(cb_reverb_bridge.get_params().amount);
-                            prev_rev_automated = false;
-                        }
-
-                        if let Some(vol_val) = local_timeline.volume.evaluate(t_sec) {
-                            eq_stage.set_target_volume(vol_val);
-                            prev_vol_automated = true;
-                        } else if prev_vol_automated {
-                            eq_stage.set_target_volume(f32::from_bits(cb_eq_bridge.master_volume.load(Ordering::Acquire)));
-                            prev_vol_automated = false;
-                        }
-
-                        // Click-free exponential smoothing for normalize gain switch (~25ms)
-                        current_norm_gain += norm_smooth_alpha * (target_norm_gain - current_norm_gain);
-
-                        // 0. Auto-Normalize input loudness (targets raw input track peak to -1.0 dBFS)
-                        let norm_l = out_l * current_norm_gain;
-                        let norm_r = out_r * current_norm_gain;
-
-                        // 1. 8D Binaural Panner DSP (horizontal azimuth)
-                        let (pan_l, pan_r) = panner.process_sample(norm_l, norm_r);
-
-                        // 2. 3D Elevation DSP (vertical pinna cue) - Before distance per Step 4 physics
-                        let (elev_l, elev_r) = elevation_stage.process_sample(pan_l, pan_r);
-
-                        // 3. 3D Distance DSP (air absorption high cut + inverse-distance volume attenuation)
-                        let (dist_l, dist_r) = distance_stage.process_sample(elev_l, elev_r);
-
-                        // 4. Environmental Reverb DSP (FDN-8 Tank with distance auto-tie)
-                        let (rev_l, rev_r) = reverb_stage.process_sample(dist_l, dist_r);
-
-                        // 5. 4-Band Cascaded EQ + Smoothed Volume DSP
-                        let (eq_l, eq_r) = eq_stage.process_sample(rev_l, rev_r);
-
-                        // 5.5 Stereo Output Balance Trim (Post-Master Gain, Pre-Limiter)
-                        let target_balance = f32::from_bits(cb_balance.load(Ordering::Relaxed)).clamp(-1.0, 1.0);
-                        let target_bal_l = if target_balance <= 0.0 { 1.0 } else { 1.0 - target_balance };
-                        let target_bal_r = if target_balance >= 0.0 { 1.0 } else { 1.0 + target_balance };
-                        current_bal_gain_l += bal_smooth_alpha * (target_bal_l - current_bal_gain_l);
-                        current_bal_gain_r += bal_smooth_alpha * (target_bal_r - current_bal_gain_r);
-                        let bal_l = eq_l * current_bal_gain_l;
-                        let bal_r = eq_r * current_bal_gain_r;
-
-                        // 6. Master Dynamics Stage (5ms lookahead brickwall peak limiter + soft clipper)
-                        let (dyn_l, dyn_r) = dynamics_stage.process_sample(bal_l, bal_r);
+                        let (dyn_l, dyn_r) = dsp_chain.process_frame(
+                            out_l,
+                            out_r,
+                            t_sec,
+                            &local_timeline,
+                            manual_az,
+                            manual_az_enabled,
+                            fallback_elev,
+                            fallback_dist,
+                            fallback_rev,
+                            fallback_vol,
+                            target_norm_gain,
+                            target_balance,
+                        );
 
                         if out_channels == 1 {
                             frame_chunk[0] = (dyn_l + dyn_r) * 0.5;
@@ -633,10 +561,10 @@ impl AudioPlayer {
                     }
 
                     // Compensate playhead telemetry for master limiter's lookahead delay
-                    let lookahead_src = dynamics_stage.lookahead_samples() as f64 * rate_ratio;
+                    let lookahead_src = dsp_chain.lookahead_samples() as f64 * rate_ratio;
                     let audible_playhead = (fractional_playhead - lookahead_src).max(0.0);
                     cb_playhead.store(audible_playhead as usize, Ordering::Release);
-                    cb_current_azimuth.store(panner.current_azimuth().to_bits(), Ordering::Release);
+                    cb_current_azimuth.store(dsp_chain.current_azimuth().to_bits(), Ordering::Release);
                 },
                 move |err| {
                     log::error!("Audio stream playback error: {err}");
@@ -817,6 +745,11 @@ impl AudioPlayer {
         if let Ok(mut slot) = self.buffer_slot.write() {
             *slot = Some(Arc::new(buffer));
         }
+    }
+
+    /// Returns a clone of the currently loaded AudioBuffer Arc, if any.
+    pub fn get_buffer(&self) -> Option<Arc<AudioBuffer>> {
+        self.buffer_slot.read().ok().and_then(|guard| guard.clone())
     }
 
     /// Resumes audio playback.

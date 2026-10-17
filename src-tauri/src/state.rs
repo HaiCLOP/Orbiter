@@ -1,4 +1,5 @@
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex, RwLock};
 use crate::engine::AudioPlayer;
 use crate::models::TrackInfo;
 
@@ -6,6 +7,8 @@ use crate::models::TrackInfo;
 pub struct AppState {
     pub player: Option<Arc<AudioPlayer>>,
     pub current_track: Mutex<Option<TrackInfo>>,
+    pub export_cancel_flag: Arc<RwLock<Option<Arc<AtomicBool>>>>,
+    pub current_project_path: Arc<RwLock<Option<String>>>,
 }
 
 impl AppState {
@@ -21,6 +24,8 @@ impl AppState {
         Self {
             player,
             current_track: Mutex::new(None),
+            export_cancel_flag: Arc::new(RwLock::new(None)),
+            current_project_path: Arc::new(RwLock::new(None)),
         }
     }
 }

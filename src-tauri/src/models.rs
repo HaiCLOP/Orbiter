@@ -195,5 +195,104 @@ pub struct AudioDeviceInfo {
     pub is_headphone: bool,
 }
 
+/// Project file format schema (`.orb8d`, JSON-based).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ProjectFile {
+    pub format_version: u32,
+    pub audio_source: AudioSourceRef,
+    pub dsp: DspProjectState,
+    pub timeline: TimelineState,
+    pub ui: UiProjectState,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AudioSourceRef {
+    pub file_path: String,
+    pub relative_path: Option<String>,
+    pub file_name: String,
+    pub duration: f64,
+    pub channels: u16,
+    pub sample_rate: u32,
+    pub file_size: u64,
+    pub fingerprint_sha256: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DspProjectState {
+    pub spatial: Spatial8DParams,
+    /// Manual azimuth override when Pan lane is in manual mode.
+    /// None when the Pan lane is automated.
+    pub manual_azimuth: Option<f32>,
+    /// Stereo output balance trim [-1.0, 1.0].
+    pub balance: f32,
+    pub eq: EqParams,
+    pub reverb: ReverbParams,
+    pub dynamics: DynamicsParams,
+    pub normalize_gain: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct UiProjectState {
+    pub active_tab: String,
+    pub active_lane: String,
+    pub radar_view_mode: String,
+    pub timeline_zoom: f32,
+    pub timeline_scroll: f32,
+}
+
+/// Offline Export Settings from the UI.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportSettings {
+    pub destination_path: String,
+    pub format: ExportFormat,
+    pub sample_rate_option: SampleRateOption,
+    pub normalize: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ExportFormat {
+    Wav { bit_depth: WavBitDepth },
+    Mp3 { bitrate: Mp3Bitrate },
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum WavBitDepth {
+    Pcm16,
+    Pcm24,
+    Float32,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum Mp3Bitrate {
+    Kbps128,
+    Kbps192,
+    Kbps256,
+    Kbps320,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum SampleRateOption {
+    MatchSource,
+    Hz44100,
+    Hz48000,
+    Hz96000,
+}
+
+/// Real-time progress event emitted during offline export.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportProgress {
+    pub progress: f32, // 0.0 to 1.0
+    pub elapsed_sec: f32,
+    pub eta_sec: f32,
+    pub current_frame: usize,
+    pub total_frames: usize,
+    pub status: String, // "rendering" | "encoding" | "finished" | "cancelled" | "error"
+    pub error: Option<String>,
+}
+
 
 
