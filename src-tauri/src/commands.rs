@@ -7,7 +7,7 @@ use tauri_plugin_dialog::DialogExt;
 use crate::decode::{decode_audio_file, generate_waveform_peaks};
 use crate::models::{
     AudioDeviceInfo, DspProjectState, DynamicsParams, EqParams, ExportProgress, ExportSettings,
-    ProjectFile, ReverbParams, Spatial8DParams, TrackInfo,
+    ProjectFile, ReverbParams, Spatial8DParams, TrackInfo, TrackSummary,
 };
 use crate::state::AppState;
 use crate::stems::{
@@ -101,6 +101,121 @@ pub async fn load_track(
     }
 
     Ok(track_info)
+}
+
+/// Adds an audio file as an independent track into the multi-track engine.
+///
+/// Invariants:
+/// - Maximum of 8 concurrent tracks enforced.
+/// - Decoded to interleaved stereo f32 buffer.
+/// - Master clock syncs all tracks without phase drift.
+#[tauri::command]
+pub async fn add_track_from_file(
+    path: String,
+    name: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<TrackSummary, String> {
+    log::info!("Adding track from file: {}", path);
+
+    let (audio_buffer, _format_name) = decode_audio_file(&path)
+        .map_err(|err| format!("Failed to decode audio file: {err}"))?;
+
+    let track_name = name.unwrap_or_else(|| {
+        Path::new(&path)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "Track".to_string())
+    });
+
+    let track_id = format!("track-{}", &uuid::Uuid::new_v4().to_string()[..8]);
+
+    if let Some(player) = &state.player {
+        player.add_track(
+            track_id.clone(),
+            track_name,
+            Some(path),
+            audio_buffer,
+        )?;
+
+        let tracks = player.get_tracks();
+        let summary = tracks.into_iter().find(|t| t.id == track_id)
+            .ok_or_else(|| "Failed to retrieve added track summary".to_string())?;
+
+        Ok(summary)
+    } else {
+        Err("Audio player engine is not initialized".to_string())
+    }
+}
+
+/// Removes a track by ID from the multi-track engine.
+#[tauri::command]
+pub fn remove_track(track_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    if let Some(player) = &state.player {
+        player.remove_track(&track_id)
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
+}
+
+/// Retrieves summaries of all active tracks in the multi-track engine.
+#[tauri::command]
+pub fn get_tracks(state: State<'_, AppState>) -> Result<Vec<TrackSummary>, String> {
+    if let Some(player) = &state.player {
+        Ok(player.get_tracks())
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
+}
+
+/// Sets volume for a specific track [0.0, 2.0].
+#[tauri::command]
+pub fn set_track_volume(track_id: String, volume: f32, state: State<'_, AppState>) -> Result<(), String> {
+    if let Some(player) = &state.player {
+        player.set_track_volume(&track_id, volume)
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
+}
+
+/// Sets stereo balance trim for a specific track [-1.0, 1.0].
+#[tauri::command]
+pub fn set_track_balance(track_id: String, balance: f32, state: State<'_, AppState>) -> Result<(), String> {
+    if let Some(player) = &state.player {
+        player.set_track_balance(&track_id, balance)
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
+}
+
+/// Sets mute state for a specific track.
+#[tauri::command]
+pub fn set_track_mute(track_id: String, muted: bool, state: State<'_, AppState>) -> Result<(), String> {
+    if let Some(player) = &state.player {
+        player.set_track_mute(&track_id, muted)
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
+}
+
+/// Sets solo state for a specific track.
+#[tauri::command]
+pub fn set_track_solo(track_id: String, soloed: bool, state: State<'_, AppState>) -> Result<(), String> {
+    if let Some(player) = &state.player {
+        player.set_track_solo(&track_id, soloed)
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
+}
+
+/// Clears all tracks from the multi-track engine and stops playback.
+#[tauri::command]
+pub fn clear_tracks(state: State<'_, AppState>) -> Result<(), String> {
+    if let Some(player) = &state.player {
+        player.clear_tracks();
+        Ok(())
+    } else {
+        Err("Audio player engine is unavailable".to_string())
+    }
 }
 
 /// Resumes playback of loaded audio track.

@@ -86,6 +86,20 @@ pub struct TrackInfo {
     pub normalize_gain: f32,
 }
 
+/// Summary representation of an active audio track in the multi-track engine.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TrackSummary {
+    pub id: String,
+    pub name: String,
+    pub file_path: Option<String>,
+    pub duration: f64,
+    pub sample_rate: u32,
+    pub volume: f32,
+    pub balance: f32,
+    pub muted: bool,
+    pub soloed: bool,
+}
+
 /// Real-time 8D spatial parameters controlled live from the UI.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Spatial8DParams {

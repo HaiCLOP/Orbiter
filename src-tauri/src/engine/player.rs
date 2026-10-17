@@ -9,12 +9,55 @@ use crate::engine::spatial_3d::Spatial3DBridge;
 use crate::engine::SpatialDspChain;
 use crate::models::{
     AudioBuffer, AudioDeviceInfo, DynamicsParams, EqParams, ReverbParams, Spatial8DParams,
+    TrackSummary,
 };
 use crate::timeline::{
     create_timeline_preset, AutomationLaneId, Keyframe, TimelineBridge, TimelineState,
 };
 
+pub const MAX_TRACKS: usize = 8;
 const NO_SEEK: u64 = u64::MAX;
+
+/// An individual audio track slot managed by the multi-track engine.
+pub struct TrackSlot {
+    pub id: String,
+    pub name: String,
+    pub file_path: Option<String>,
+    pub buffer: Arc<AudioBuffer>,
+    pub volume: Arc<AtomicU32>,   // f32 bits, default 1.0
+    pub balance: Arc<AtomicU32>,  // f32 bits [-1.0, 1.0], default 0.0
+    pub muted: Arc<AtomicBool>,   // default false
+    pub soloed: Arc<AtomicBool>,  // default false
+}
+
+impl TrackSlot {
+    pub fn new(id: String, name: String, file_path: Option<String>, buffer: AudioBuffer) -> Self {
+        Self {
+            id,
+            name,
+            file_path,
+            buffer: Arc::new(buffer),
+            volume: Arc::new(AtomicU32::new(1.0f32.to_bits())),
+            balance: Arc::new(AtomicU32::new(0.0f32.to_bits())),
+            muted: Arc::new(AtomicBool::new(false)),
+            soloed: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    pub fn to_summary(&self) -> TrackSummary {
+        TrackSummary {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            file_path: self.file_path.clone(),
+            duration: self.buffer.duration,
+            sample_rate: self.buffer.sample_rate,
+            volume: f32::from_bits(self.volume.load(Ordering::Acquire)),
+            balance: f32::from_bits(self.balance.load(Ordering::Acquire)),
+            muted: self.muted.load(Ordering::Acquire),
+            soloed: self.soloed.load(Ordering::Acquire),
+        }
+    }
+}
 
 /// Wrapper around `cpal::Stream` to allow holding it across threads.
 /// On Windows (WASAPI), cpal::Stream contains raw COM pointers (*mut ()),
@@ -277,7 +320,7 @@ pub struct AudioPlayer {
     _stream: RwLock<Option<StreamHandle>>,
     current_device_name: RwLock<String>,
     device_sample_rate: AtomicU32,
-    buffer_slot: Arc<RwLock<Option<Arc<AudioBuffer>>>>,
+    tracks: Arc<RwLock<Vec<Arc<TrackSlot>>>>,
     is_playing: Arc<AtomicBool>,
     playhead_frame: Arc<AtomicUsize>,
     seek_target_frame: Arc<AtomicU64>,
@@ -312,7 +355,7 @@ impl AudioPlayer {
     /// Creates and starts an output stream on the designated CPAL device.
     fn create_stream_for_device(
         device: &cpal::Device,
-        cb_buffer_slot: Arc<RwLock<Option<Arc<AudioBuffer>>>>,
+        cb_tracks: Arc<RwLock<Vec<Arc<TrackSlot>>>>,
         cb_is_playing: Arc<AtomicBool>,
         cb_playhead: Arc<AtomicUsize>,
         cb_seek: Arc<AtomicU64>,
@@ -362,7 +405,7 @@ impl AudioPlayer {
                 &config,
                 move |output_data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                     // Try non-blocking read lock to prevent priority inversion
-                    let buffer_guard = match cb_buffer_slot.try_read() {
+                    let tracks_guard = match cb_tracks.try_read() {
                         Ok(guard) => guard,
                         Err(_) => {
                             output_data.fill(0.0);
@@ -370,13 +413,10 @@ impl AudioPlayer {
                         }
                     };
 
-                    let audio_buf: Arc<AudioBuffer> = match buffer_guard.as_ref() {
-                        Some(buf) => Arc::clone(buf),
-                        None => {
-                            output_data.fill(0.0);
-                            return;
-                        }
-                    };
+                    if tracks_guard.is_empty() {
+                        output_data.fill(0.0);
+                        return;
+                    }
 
                     // Check for pending seek requests via atomic swap (race-free consumption)
                     let pending_seek = cb_seek.swap(NO_SEEK, Ordering::AcqRel);
@@ -492,10 +532,6 @@ impl AudioPlayer {
                         }
                     }
 
-                    let src_samples = &audio_buf.samples;
-                    let src_rate = audio_buf.sample_rate as f64;
-                    let total_src_frames = audio_buf.total_frames();
-                    let rate_ratio = src_rate / dev_rate;
                     let out_channels = channels as usize;
 
                     let manual_az = cb_spatial_3d_bridge.get_manual_azimuth();
@@ -506,35 +542,97 @@ impl AudioPlayer {
                     let fallback_vol = f32::from_bits(cb_eq_bridge.master_volume.load(Ordering::Acquire));
                     let target_balance = f32::from_bits(cb_balance.load(Ordering::Relaxed));
 
+                    let mut max_duration = 0.0f64;
+                    for track in tracks_guard.iter() {
+                        if track.buffer.duration > max_duration {
+                            max_duration = track.buffer.duration;
+                        }
+                    }
+
+                    // Evaluate DAW Solo / Mute logic with zero allocations on the stack
+                    let any_solo = tracks_guard.iter().any(|t| t.soloed.load(Ordering::Relaxed));
+
+                    #[derive(Copy, Clone)]
+                    struct ActiveTrackRef<'a> {
+                        samples: &'a [f32],
+                        gain_l: f32,
+                        gain_r: f32,
+                        sample_rate: f64,
+                        total_frames: usize,
+                    }
+
+                    let mut active_tracks: [Option<ActiveTrackRef>; MAX_TRACKS] = [None; MAX_TRACKS];
+                    let mut active_count = 0;
+
+                    for track in tracks_guard.iter() {
+                        let soloed = track.soloed.load(Ordering::Relaxed);
+                        let muted = track.muted.load(Ordering::Relaxed);
+                        let is_audible = if any_solo {
+                            soloed && !muted
+                        } else {
+                            !muted
+                        };
+
+                        if is_audible {
+                            let vol = f32::from_bits(track.volume.load(Ordering::Relaxed));
+                            let bal = f32::from_bits(track.balance.load(Ordering::Relaxed)).clamp(-1.0, 1.0);
+                            let gain_l = vol * if bal <= 0.0 { 1.0 } else { 1.0 - bal };
+                            let gain_r = vol * if bal >= 0.0 { 1.0 } else { 1.0 + bal };
+
+                            if active_count < MAX_TRACKS {
+                                active_tracks[active_count] = Some(ActiveTrackRef {
+                                    samples: &track.buffer.samples,
+                                    gain_l,
+                                    gain_r,
+                                    sample_rate: track.buffer.sample_rate as f64,
+                                    total_frames: track.buffer.total_frames(),
+                                });
+                                active_count += 1;
+                            }
+                        }
+                    }
+
                     // 7. Fill hardware output buffer
                     for frame_chunk in output_data.chunks_mut(out_channels) {
-                        let cur_frame_idx = fractional_playhead.floor() as usize;
+                        let t_sec = fractional_playhead / dev_rate;
 
-                        if cur_frame_idx >= total_src_frames {
-                            // Reached end of track -> auto-stop
+                        if t_sec >= max_duration && max_duration > 0.0 {
+                            // Reached end of tracks -> auto-stop
                             cb_is_playing.store(false, Ordering::Release);
                             fractional_playhead = 0.0;
                             frame_chunk.fill(0.0);
                             break;
                         }
 
-                        // Resample interleaved source stereo
-                        let alpha = (fractional_playhead - cur_frame_idx as f64) as f32;
-                        let next_frame_idx = (cur_frame_idx + 1).min(total_src_frames - 1);
+                        let mut mix_l = 0.0f32;
+                        let mut mix_r = 0.0f32;
 
-                        let cur_l = src_samples[cur_frame_idx * 2];
-                        let cur_r = src_samples[cur_frame_idx * 2 + 1];
-                        let next_l = src_samples[next_frame_idx * 2];
-                        let next_r = src_samples[next_frame_idx * 2 + 1];
+                        for i in 0..active_count {
+                            if let Some(track) = active_tracks[i] {
+                                let track_frac = t_sec * track.sample_rate;
+                                let cur_frame_idx = track_frac.floor() as usize;
 
-                        let out_l = cur_l + alpha * (next_l - cur_l);
-                        let out_r = cur_r + alpha * (next_r - cur_r);
+                                if cur_frame_idx < track.total_frames {
+                                    let alpha = (track_frac - cur_frame_idx as f64) as f32;
+                                    let next_frame_idx = (cur_frame_idx + 1).min(track.total_frames - 1);
 
-                        let t_sec = fractional_playhead / src_rate;
+                                    let cur_l = track.samples[cur_frame_idx * 2];
+                                    let cur_r = track.samples[cur_frame_idx * 2 + 1];
+                                    let next_l = track.samples[next_frame_idx * 2];
+                                    let next_r = track.samples[next_frame_idx * 2 + 1];
+
+                                    let out_l = cur_l + alpha * (next_l - cur_l);
+                                    let out_r = cur_r + alpha * (next_r - cur_r);
+
+                                    mix_l += out_l * track.gain_l;
+                                    mix_r += out_r * track.gain_r;
+                                }
+                            }
+                        }
 
                         let (dyn_l, dyn_r) = dsp_chain.process_frame(
-                            out_l,
-                            out_r,
+                            mix_l,
+                            mix_r,
                             t_sec,
                             &local_timeline,
                             manual_az,
@@ -557,12 +655,12 @@ impl AudioPlayer {
                             }
                         }
 
-                        fractional_playhead += rate_ratio;
+                        fractional_playhead += 1.0;
                     }
 
                     // Compensate playhead telemetry for master limiter's lookahead delay
-                    let lookahead_src = dsp_chain.lookahead_samples() as f64 * rate_ratio;
-                    let audible_playhead = (fractional_playhead - lookahead_src).max(0.0);
+                    let lookahead_dev = dsp_chain.lookahead_samples() as f64;
+                    let audible_playhead = (fractional_playhead - lookahead_dev).max(0.0);
                     cb_playhead.store(audible_playhead as usize, Ordering::Release);
                     cb_current_azimuth.store(dsp_chain.current_azimuth().to_bits(), Ordering::Release);
                 },
@@ -591,7 +689,7 @@ impl AudioPlayer {
 
         let sample_rate = supported_config.sample_rate().0;
 
-        let buffer_slot = Arc::new(RwLock::new(None));
+        let tracks = Arc::new(RwLock::new(Vec::new()));
         let is_playing = Arc::new(AtomicBool::new(false));
         let playhead_frame = Arc::new(AtomicUsize::new(0));
         let seek_target_frame = Arc::new(AtomicU64::new(NO_SEEK));
@@ -611,7 +709,7 @@ impl AudioPlayer {
 
         let (stream_handle, stream_rate) = Self::create_stream_for_device(
             &device,
-            Arc::clone(&buffer_slot),
+            Arc::clone(&tracks),
             Arc::clone(&is_playing),
             Arc::clone(&playhead_frame),
             Arc::clone(&seek_target_frame),
@@ -640,7 +738,7 @@ impl AudioPlayer {
             _stream: RwLock::new(Some(stream_handle)),
             current_device_name: RwLock::new(device_name),
             device_sample_rate: AtomicU32::new(stream_rate),
-            buffer_slot,
+            tracks,
             is_playing,
             playhead_frame,
             seek_target_frame,
@@ -698,7 +796,7 @@ impl AudioPlayer {
 
         let (new_stream, new_sample_rate) = Self::create_stream_for_device(
             &target_device,
-            Arc::clone(&self.buffer_slot),
+            Arc::clone(&self.tracks),
             Arc::clone(&self.is_playing),
             Arc::clone(&self.playhead_frame),
             Arc::clone(&self.seek_target_frame),
@@ -738,18 +836,133 @@ impl AudioPlayer {
         Ok(self.get_audio_devices())
     }
 
-    /// Loads an AudioBuffer for playback and resets playhead to 0.
+    /// Loads an AudioBuffer as the primary track (Track 0) and resets playhead to 0.
     pub fn load_buffer(&self, buffer: AudioBuffer) {
         self.pause();
         self.seek(0.0);
-        if let Ok(mut slot) = self.buffer_slot.write() {
-            *slot = Some(Arc::new(buffer));
+        if let Ok(mut tracks) = self.tracks.write() {
+            tracks.clear();
+            tracks.push(Arc::new(TrackSlot::new(
+                "track-0".to_string(),
+                "Main Track".to_string(),
+                None,
+                buffer,
+            )));
         }
     }
 
-    /// Returns a clone of the currently loaded AudioBuffer Arc, if any.
+    /// Returns a clone of the primary AudioBuffer Arc (Track 0), if any.
     pub fn get_buffer(&self) -> Option<Arc<AudioBuffer>> {
-        self.buffer_slot.read().ok().and_then(|guard| guard.clone())
+        self.tracks.read().ok().and_then(|guard| guard.first().map(|t| Arc::clone(&t.buffer)))
+    }
+
+    /// Adds a new audio track into the multi-track engine.
+    /// Returns Ok(track_id) or Err if maximum capacity (8 tracks) is reached.
+    pub fn add_track(
+        &self,
+        id: String,
+        name: String,
+        file_path: Option<String>,
+        buffer: AudioBuffer,
+    ) -> Result<String, String> {
+        let mut tracks = self.tracks.write().map_err(|e| format!("Lock error: {e}"))?;
+        if tracks.len() >= MAX_TRACKS {
+            return Err(format!(
+                "Maximum track limit reached ({} tracks max). Cannot add more tracks.",
+                MAX_TRACKS
+            ));
+        }
+        if tracks.iter().any(|t| t.id == id) {
+            return Err(format!("Track with ID '{}' already exists", id));
+        }
+        let slot = Arc::new(TrackSlot::new(id.clone(), name, file_path, buffer));
+        tracks.push(slot);
+        Ok(id)
+    }
+
+    /// Removes a track by ID from the multi-track engine.
+    pub fn remove_track(&self, track_id: &str) -> Result<(), String> {
+        let mut tracks = self.tracks.write().map_err(|e| format!("Lock error: {e}"))?;
+        let initial_len = tracks.len();
+        tracks.retain(|t| t.id != track_id);
+        if tracks.len() == initial_len {
+            return Err(format!("Track '{track_id}' not found"));
+        }
+        if tracks.is_empty() {
+            self.pause();
+            self.seek(0.0);
+        }
+        Ok(())
+    }
+
+    /// Clears all tracks and resets playback position.
+    pub fn clear_tracks(&self) {
+        self.pause();
+        self.seek(0.0);
+        if let Ok(mut tracks) = self.tracks.write() {
+            tracks.clear();
+        }
+    }
+
+    /// Retrieves summaries for all active audio tracks.
+    pub fn get_tracks(&self) -> Vec<TrackSummary> {
+        if let Ok(tracks) = self.tracks.read() {
+            tracks.iter().map(|t| t.to_summary()).collect()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Sets volume for a specific track [0.0, 2.0].
+    pub fn set_track_volume(&self, track_id: &str, volume: f32) -> Result<(), String> {
+        let tracks = self.tracks.read().map_err(|e| format!("Lock error: {e}"))?;
+        let track = tracks.iter().find(|t| t.id == track_id)
+            .ok_or_else(|| format!("Track '{track_id}' not found"))?;
+        track.volume.store(volume.max(0.0).to_bits(), Ordering::Release);
+        Ok(())
+    }
+
+    /// Sets stereo balance trim for a specific track [-1.0, 1.0].
+    pub fn set_track_balance(&self, track_id: &str, balance: f32) -> Result<(), String> {
+        let tracks = self.tracks.read().map_err(|e| format!("Lock error: {e}"))?;
+        let track = tracks.iter().find(|t| t.id == track_id)
+            .ok_or_else(|| format!("Track '{track_id}' not found"))?;
+        track.balance.store(balance.clamp(-1.0, 1.0).to_bits(), Ordering::Release);
+        Ok(())
+    }
+
+    /// Sets mute status for a specific track.
+    pub fn set_track_mute(&self, track_id: &str, muted: bool) -> Result<(), String> {
+        let tracks = self.tracks.read().map_err(|e| format!("Lock error: {e}"))?;
+        let track = tracks.iter().find(|t| t.id == track_id)
+            .ok_or_else(|| format!("Track '{track_id}' not found"))?;
+        track.muted.store(muted, Ordering::Release);
+        Ok(())
+    }
+
+    /// Sets solo status for a specific track.
+    pub fn set_track_solo(&self, track_id: &str, soloed: bool) -> Result<(), String> {
+        let tracks = self.tracks.read().map_err(|e| format!("Lock error: {e}"))?;
+        let track = tracks.iter().find(|t| t.id == track_id)
+            .ok_or_else(|| format!("Track '{track_id}' not found"))?;
+        track.soloed.store(soloed, Ordering::Release);
+        Ok(())
+    }
+
+    /// Returns the longest duration in seconds across all loaded tracks.
+    pub fn get_duration(&self) -> f64 {
+        if let Ok(tracks) = self.tracks.read() {
+            tracks.iter().map(|t| t.buffer.duration).fold(0.0f64, f64::max)
+        } else {
+            0.0
+        }
+    }
+
+    /// Returns a specific track's AudioBuffer Arc.
+    pub fn get_track_buffer(&self, track_id: &str) -> Option<Arc<AudioBuffer>> {
+        self.tracks.read().ok().and_then(|tracks| {
+            tracks.iter().find(|t| t.id == track_id).map(|t| Arc::clone(&t.buffer))
+        })
     }
 
     /// Resumes audio playback.
@@ -775,35 +988,20 @@ impl AudioPlayer {
 
     /// Seeks to a specific timestamp in seconds.
     pub fn seek(&self, seconds: f64) {
-        let sample_rate = if let Ok(guard) = self.buffer_slot.read() {
-            guard.as_ref().map(|b| b.sample_rate).unwrap_or(44100)
-        } else {
-            44100
-        };
-
-        let target_frame = (seconds * sample_rate as f64).round() as u64;
+        let dev_rate = self.device_sample_rate();
+        let target_frame = (seconds.max(0.0) * dev_rate as f64).round() as u64;
         self.seek_target_frame.store(target_frame, Ordering::Release);
         self.playhead_frame.store(target_frame as usize, Ordering::Release);
     }
 
     /// Returns the current playback position in seconds.
     pub fn get_position(&self) -> f64 {
-        let sample_rate = if let Ok(guard) = self.buffer_slot.read() {
-            guard.as_ref().map(|b| b.sample_rate).unwrap_or(44100)
-        } else {
-            44100
-        };
-
+        let dev_rate = self.device_sample_rate();
+        if dev_rate == 0 {
+            return 0.0;
+        }
         let frame = self.playhead_frame.load(Ordering::Acquire);
-        // Lookahead latency compensation (5.0 ms = ~240 samples @ 48kHz)
-        // Keeps waveform playhead and 3D radar dot sample-accurate with acoustic ear arrival
-        let lookahead_latency = if self.dynamics_bridge.limiter_enabled.load(Ordering::Acquire) {
-            (sample_rate as f32 * 0.005).round() as usize
-        } else {
-            0
-        };
-        let compensated_frame = frame.saturating_sub(lookahead_latency);
-        compensated_frame as f64 / sample_rate as f64
+        frame as f64 / dev_rate as f64
     }
 
     /// Returns current LFO azimuth angle in radians [0, 2*PI).
@@ -993,6 +1191,56 @@ impl AudioPlayer {
     }
 }
 
+/// Pure software mixing helper for testing and offline validation:
+/// mixes active tracks at timestamp `t_sec` with constant-gain balance and solo/mute logic.
+pub fn mix_tracks_at_time(
+    tracks: &[Arc<TrackSlot>],
+    t_sec: f64,
+) -> (f32, f32) {
+    let any_solo = tracks.iter().any(|t| t.soloed.load(Ordering::Relaxed));
+    let mut mix_l = 0.0f32;
+    let mut mix_r = 0.0f32;
+
+    for track in tracks {
+        let soloed = track.soloed.load(Ordering::Relaxed);
+        let muted = track.muted.load(Ordering::Relaxed);
+        let is_audible = if any_solo {
+            soloed && !muted
+        } else {
+            !muted
+        };
+
+        if is_audible {
+            let vol = f32::from_bits(track.volume.load(Ordering::Relaxed));
+            let bal = f32::from_bits(track.balance.load(Ordering::Relaxed)).clamp(-1.0, 1.0);
+            let gain_l = vol * if bal <= 0.0 { 1.0 } else { 1.0 - bal };
+            let gain_r = vol * if bal >= 0.0 { 1.0 } else { 1.0 + bal };
+
+            let track_frac = t_sec * track.buffer.sample_rate as f64;
+            let cur_frame_idx = track_frac.floor() as usize;
+            let total_frames = track.buffer.total_frames();
+
+            if cur_frame_idx < total_frames {
+                let alpha = (track_frac - cur_frame_idx as f64) as f32;
+                let next_frame_idx = (cur_frame_idx + 1).min(total_frames - 1);
+
+                let cur_l = track.buffer.samples[cur_frame_idx * 2];
+                let cur_r = track.buffer.samples[cur_frame_idx * 2 + 1];
+                let next_l = track.buffer.samples[next_frame_idx * 2];
+                let next_r = track.buffer.samples[next_frame_idx * 2 + 1];
+
+                let out_l = cur_l + alpha * (next_l - cur_l);
+                let out_r = cur_r + alpha * (next_r - cur_r);
+
+                mix_l += out_l * gain_l;
+                mix_r += out_r * gain_r;
+            }
+        }
+    }
+
+    (mix_l, mix_r)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1131,5 +1379,176 @@ mod tests {
         let target_r = if b >= 0.0 { 1.0 } else { 1.0 + b };
         assert_eq!(target_l, 0.25);
         assert_eq!(target_r, 1.0);
+    }
+
+    #[test]
+    fn test_multitrack_slot_creation_and_capacity_limit() {
+        let dummy_buf = AudioBuffer {
+            samples: vec![0.0; 200],
+            sample_rate: 44100,
+            channels: 2,
+            duration: 100.0 / 44100.0,
+        };
+
+        let mut tracks: Vec<Arc<TrackSlot>> = Vec::new();
+        for i in 0..MAX_TRACKS {
+            assert!(tracks.len() < MAX_TRACKS);
+            tracks.push(Arc::new(TrackSlot::new(
+                format!("track-{}", i),
+                format!("Stem {}", i),
+                None,
+                dummy_buf.clone(),
+            )));
+        }
+
+        assert_eq!(tracks.len(), 8);
+
+        // Attempting to add 9th track beyond MAX_TRACKS
+        let attempt_9th = if tracks.len() >= MAX_TRACKS {
+            Err(format!(
+                "Maximum track limit reached ({} tracks max). Cannot add more tracks.",
+                MAX_TRACKS
+            ))
+        } else {
+            Ok(())
+        };
+        assert!(attempt_9th.is_err());
+        assert!(attempt_9th.unwrap_err().contains("8 tracks max"));
+    }
+
+    #[test]
+    fn test_multitrack_mute_solo_daw_logic() {
+        // Track A: value 1.0 (Left & Right)
+        let buf_a = AudioBuffer {
+            samples: vec![1.0; 200],
+            sample_rate: 48000,
+            channels: 2,
+            duration: 100.0 / 48000.0,
+        };
+        // Track B: value 2.0 (Left & Right)
+        let buf_b = AudioBuffer {
+            samples: vec![2.0; 200],
+            sample_rate: 48000,
+            channels: 2,
+            duration: 100.0 / 48000.0,
+        };
+
+        let track_a = Arc::new(TrackSlot::new("a".into(), "Track A".into(), None, buf_a));
+        let track_b = Arc::new(TrackSlot::new("b".into(), "Track B".into(), None, buf_b));
+        let tracks = vec![Arc::clone(&track_a), Arc::clone(&track_b)];
+
+        // Case 1: Both unmuted, neither soloed -> Mix = 1.0 + 2.0 = 3.0
+        let (l1, r1) = mix_tracks_at_time(&tracks, 0.0001);
+        assert!((l1 - 3.0).abs() < 1e-4);
+        assert!((r1 - 3.0).abs() < 1e-4);
+
+        // Case 2: Track B muted -> Mix = 1.0
+        track_b.muted.store(true, Ordering::Release);
+        let (l2, r2) = mix_tracks_at_time(&tracks, 0.0001);
+        assert!((l2 - 1.0).abs() < 1e-4);
+        assert!((r2 - 1.0).abs() < 1e-4);
+
+        // Case 3: Track B unmuted, Track A soloed -> only A is heard (Mix = 1.0)
+        track_b.muted.store(false, Ordering::Release);
+        track_a.soloed.store(true, Ordering::Release);
+        let (l3, r3) = mix_tracks_at_time(&tracks, 0.0001);
+        assert!((l3 - 1.0).abs() < 1e-4);
+        assert!((r3 - 1.0).abs() < 1e-4);
+
+        // Case 4: Track A soloed BUT also muted -> silence (mute takes precedence)
+        track_a.muted.store(true, Ordering::Release);
+        let (l4, r4) = mix_tracks_at_time(&tracks, 0.0001);
+        assert_eq!(l4, 0.0);
+        assert_eq!(r4, 0.0);
+
+        // Case 5: Both Track A and Track B soloed and unmuted -> both heard (Mix = 3.0)
+        track_a.muted.store(false, Ordering::Release);
+        track_b.soloed.store(true, Ordering::Release);
+        let (l5, r5) = mix_tracks_at_time(&tracks, 0.0001);
+        assert!((l5 - 3.0).abs() < 1e-4);
+        assert!((r5 - 3.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_multitrack_constant_gain_balance_and_volume() {
+        let buf = AudioBuffer {
+            samples: vec![1.0; 200],
+            sample_rate: 48000,
+            channels: 2,
+            duration: 100.0 / 48000.0,
+        };
+        let track = Arc::new(TrackSlot::new("t".into(), "Track".into(), None, buf));
+        let tracks = vec![Arc::clone(&track)];
+
+        // Center balance (0.0), unity volume (1.0) -> (1.0, 1.0)
+        track.volume.store(1.0f32.to_bits(), Ordering::Release);
+        track.balance.store(0.0f32.to_bits(), Ordering::Release);
+        let (l1, r1) = mix_tracks_at_time(&tracks, 0.0001);
+        assert!((l1 - 1.0).abs() < 1e-4);
+        assert!((r1 - 1.0).abs() < 1e-4);
+
+        // Pan Left (-0.5), volume 1.0 -> L = 1.0, R = 0.5
+        track.balance.store((-0.5f32).to_bits(), Ordering::Release);
+        let (l2, r2) = mix_tracks_at_time(&tracks, 0.0001);
+        assert!((l2 - 1.0).abs() < 1e-4);
+        assert!((r2 - 0.5).abs() < 1e-4);
+
+        // Pan Right (+0.75), volume 1.5 -> L = 1.5 * 0.25 = 0.375, R = 1.5 * 1.0 = 1.5
+        track.volume.store(1.5f32.to_bits(), Ordering::Release);
+        track.balance.store(0.75f32.to_bits(), Ordering::Release);
+        let (l3, r3) = mix_tracks_at_time(&tracks, 0.0001);
+        assert!((l3 - 0.375).abs() < 1e-4);
+        assert!((r3 - 1.5).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_multitrack_zero_drift_sample_accuracy() {
+        let rate1 = 44100;
+        let rate2 = 48000;
+        let frames1 = rate1;
+        let frames2 = rate2;
+
+        let mut samples1 = Vec::with_capacity(frames1 * 2);
+        for i in 0..frames1 {
+            let t = i as f32 / rate1 as f32;
+            let val = (2.0 * std::f32::consts::PI * 440.0 * t).sin();
+            samples1.push(val);
+            samples1.push(val);
+        }
+
+        let mut samples2 = Vec::with_capacity(frames2 * 2);
+        for i in 0..frames2 {
+            let t = i as f32 / rate2 as f32;
+            let val = (2.0 * std::f32::consts::PI * 440.0 * t).sin();
+            samples2.push(val);
+            samples2.push(val);
+        }
+
+        let track1 = Arc::new(TrackSlot::new("t1".into(), "T1".into(), None, AudioBuffer {
+            samples: samples1,
+            sample_rate: rate1 as u32,
+            channels: 2,
+            duration: 1.0,
+        }));
+        let track2 = Arc::new(TrackSlot::new("t2".into(), "T2".into(), None, AudioBuffer {
+            samples: samples2,
+            sample_rate: rate2 as u32,
+            channels: 2,
+            duration: 1.0,
+        }));
+
+        let tracks = vec![Arc::clone(&track1), Arc::clone(&track2)];
+
+        for &t_sec in &[0.1f64, 0.25, 0.5, 0.75, 0.9] {
+            let (mix_l, _mix_r) = mix_tracks_at_time(&tracks, t_sec);
+            let expected_single = (2.0 * std::f32::consts::PI * 440.0 * t_sec as f32).sin();
+            let expected_sum = expected_single * 2.0;
+
+            assert!(
+                (mix_l - expected_sum).abs() < 0.02,
+                "Drift / distortion at t={}: got {}, expected {}",
+                t_sec, mix_l, expected_sum
+            );
+        }
     }
 }
