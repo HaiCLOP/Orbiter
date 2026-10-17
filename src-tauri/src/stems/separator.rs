@@ -100,7 +100,7 @@ pub fn resample_stereo(
 
 /// Executes Demucs v4 stem separation on an AudioBuffer in the background.
 pub fn run_stem_separation(
-    app: AppHandle,
+    app: Option<&AppHandle>,
     buffer: Arc<AudioBuffer>,
     track_file_path: String,
     settings: StemSeparationSettings,
@@ -136,18 +136,20 @@ pub fn run_stem_separation(
         .map_err(|e| format!("Failed to load ONNX model: {e}"))?;
 
     // 2. Resample to Demucs 44.1kHz
-    let _ = app.emit(
-        "stem-separation-progress",
-        StemSeparationProgress {
-            current_chunk: 0,
-            total_chunks: 1,
-            percentage: 0.05,
-            elapsed_sec: start_time.elapsed().as_secs_f32(),
-            eta_sec: 0.0,
-            status: "resampling".into(),
-            error: None,
-        },
-    );
+    if let Some(app) = app {
+        let _ = app.emit(
+            "stem-separation-progress",
+            StemSeparationProgress {
+                current_chunk: 0,
+                total_chunks: 1,
+                percentage: 0.05,
+                elapsed_sec: start_time.elapsed().as_secs_f32(),
+                eta_sec: 0.0,
+                status: "resampling".into(),
+                error: None,
+            },
+        );
+    }
 
     let resampled_audio = resample_stereo(
         &buffer.samples,
@@ -180,18 +182,20 @@ pub fn run_stem_separation(
     // 5. Run Chunked Inference Loop
     for chunk_idx in 0..total_chunks {
         if cancel_flag.load(Ordering::Relaxed) {
-            let _ = app.emit(
-                "stem-separation-progress",
-                StemSeparationProgress {
-                    current_chunk: chunk_idx,
-                    total_chunks,
-                    percentage: (chunk_idx as f32 / total_chunks as f32),
-                    elapsed_sec: start_time.elapsed().as_secs_f32(),
-                    eta_sec: 0.0,
-                    status: "cancelled".into(),
-                    error: None,
-                },
-            );
+            if let Some(app) = app {
+                let _ = app.emit(
+                    "stem-separation-progress",
+                    StemSeparationProgress {
+                        current_chunk: chunk_idx,
+                        total_chunks,
+                        percentage: (chunk_idx as f32 / total_chunks as f32),
+                        elapsed_sec: start_time.elapsed().as_secs_f32(),
+                        eta_sec: 0.0,
+                        status: "cancelled".into(),
+                        error: None,
+                    },
+                );
+            }
             return Err("Stem separation cancelled by user".into());
         }
 
@@ -254,18 +258,20 @@ pub fn run_stem_separation(
             0.0
         };
 
-        let _ = app.emit(
-            "stem-separation-progress",
-            StemSeparationProgress {
-                current_chunk: chunk_idx + 1,
-                total_chunks,
-                percentage: progress,
-                elapsed_sec,
-                eta_sec,
-                status: "separating".into(),
-                error: None,
-            },
-        );
+        if let Some(app) = app {
+            let _ = app.emit(
+                "stem-separation-progress",
+                StemSeparationProgress {
+                    current_chunk: chunk_idx + 1,
+                    total_chunks,
+                    percentage: progress,
+                    elapsed_sec,
+                    eta_sec,
+                    status: "separating".into(),
+                    error: None,
+                },
+            );
+        }
     }
 
     // 6. Save Stems to Disk as 24-bit WAV files
@@ -352,18 +358,20 @@ pub fn run_stem_separation(
     }
 
     let elapsed_sec = start_time.elapsed().as_secs_f32();
-    let _ = app.emit(
-        "stem-separation-progress",
-        StemSeparationProgress {
-            current_chunk: total_chunks,
-            total_chunks,
-            percentage: 1.0,
-            elapsed_sec,
-            eta_sec: 0.0,
-            status: "finished".into(),
-            error: None,
-        },
-    );
+    if let Some(app) = app {
+        let _ = app.emit(
+            "stem-separation-progress",
+            StemSeparationProgress {
+                current_chunk: total_chunks,
+                total_chunks,
+                percentage: 1.0,
+                elapsed_sec,
+                eta_sec: 0.0,
+                status: "finished".into(),
+                error: None,
+            },
+        );
+    }
 
     log::info!(
         "Demucs stem separation finished in {:.2}s. 4 stems exported to {}",

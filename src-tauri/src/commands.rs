@@ -798,7 +798,7 @@ pub async fn download_stem_model(
         *guard = Some(Arc::clone(&cancel_flag));
     }
 
-    download_model(app, cancel_flag).await
+    download_model(Some(&app), cancel_flag).await
 }
 
 /// Cancels ongoing model download.
@@ -845,7 +845,7 @@ pub async fn start_stem_separation(
     let app_handle = app.clone();
     std::thread::spawn(move || {
         match run_stem_separation(
-            app_handle.clone(),
+            Some(&app_handle),
             buffer,
             track_path,
             settings,

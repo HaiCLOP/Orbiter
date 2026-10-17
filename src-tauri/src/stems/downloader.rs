@@ -83,7 +83,7 @@ pub fn check_model_status() -> StemModelStatus {
 /// Downloads `htdemucs_fp16weights.onnx` from Hugging Face with progress events
 /// and SHA-256 integrity verification.
 pub async fn download_model(
-    app: AppHandle,
+    app: Option<&AppHandle>,
     cancel_flag: Arc<AtomicBool>,
 ) -> Result<(), String> {
     let model_dir = get_model_storage_dir();
@@ -130,16 +130,18 @@ pub async fn download_model(
     while let Some(chunk_result) = stream.next().await {
         if cancel_flag.load(Ordering::Relaxed) {
             let _ = std::fs::remove_file(&temp_path);
-            let _ = app.emit(
-                "stem-model-download-progress",
-                ModelDownloadProgress {
-                    downloaded_bytes,
-                    total_bytes,
-                    percentage: (downloaded_bytes as f32 / total_bytes as f32).clamp(0.0, 1.0),
-                    status: "error".into(),
-                    error: Some("Download cancelled by user".into()),
-                },
-            );
+            if let Some(app) = app {
+                let _ = app.emit(
+                    "stem-model-download-progress",
+                    ModelDownloadProgress {
+                        downloaded_bytes,
+                        total_bytes,
+                        percentage: (downloaded_bytes as f32 / total_bytes as f32).clamp(0.0, 1.0),
+                        status: "error".into(),
+                        error: Some("Download cancelled by user".into()),
+                    },
+                );
+            }
             return Err("Download cancelled by user".into());
         }
 
@@ -159,16 +161,18 @@ pub async fn download_model(
         if last_progress_emit.elapsed().as_millis() >= 80 {
             last_progress_emit = std::time::Instant::now();
             let percentage = (downloaded_bytes as f32 / total_bytes as f32).clamp(0.0, 1.0);
-            let _ = app.emit(
-                "stem-model-download-progress",
-                ModelDownloadProgress {
-                    downloaded_bytes,
-                    total_bytes,
-                    percentage,
-                    status: "downloading".into(),
-                    error: None,
-                },
-            );
+            if let Some(app) = app {
+                let _ = app.emit(
+                    "stem-model-download-progress",
+                    ModelDownloadProgress {
+                        downloaded_bytes,
+                        total_bytes,
+                        percentage,
+                        status: "downloading".into(),
+                        error: None,
+                    },
+                );
+            }
         }
     }
 
@@ -177,16 +181,18 @@ pub async fn download_model(
     drop(file);
 
     // 4. SHA-256 Integrity Verification
-    let _ = app.emit(
-        "stem-model-download-progress",
-        ModelDownloadProgress {
-            downloaded_bytes,
-            total_bytes,
-            percentage: 1.0,
-            status: "verifying".into(),
-            error: None,
-        },
-    );
+    if let Some(app) = app {
+        let _ = app.emit(
+            "stem-model-download-progress",
+            ModelDownloadProgress {
+                downloaded_bytes,
+                total_bytes,
+                percentage: 1.0,
+                status: "verifying".into(),
+                error: None,
+            },
+        );
+    }
 
     let actual_sha256 = format!("{:x}", hasher.finalize());
     log::info!("Downloaded model SHA-256: {}", actual_sha256);
@@ -198,16 +204,18 @@ pub async fn download_model(
             DEMUCS_EXPECTED_SHA256, actual_sha256
         );
         log::error!("{err_msg}");
-        let _ = app.emit(
-            "stem-model-download-progress",
-            ModelDownloadProgress {
-                downloaded_bytes,
-                total_bytes,
-                percentage: 1.0,
-                status: "error".into(),
-                error: Some(err_msg.clone()),
-            },
-        );
+        if let Some(app) = app {
+            let _ = app.emit(
+                "stem-model-download-progress",
+                ModelDownloadProgress {
+                    downloaded_bytes,
+                    total_bytes,
+                    percentage: 1.0,
+                    status: "error".into(),
+                    error: Some(err_msg.clone()),
+                },
+            );
+        }
         return Err(err_msg);
     }
 
@@ -221,16 +229,18 @@ pub async fn download_model(
     })?;
 
     log::info!("Model downloaded and verified successfully: {}", dest_path.display());
-    let _ = app.emit(
-        "stem-model-download-progress",
-        ModelDownloadProgress {
-            downloaded_bytes,
-            total_bytes,
-            percentage: 1.0,
-            status: "finished".into(),
-            error: None,
-        },
-    );
+    if let Some(app) = app {
+        let _ = app.emit(
+            "stem-model-download-progress",
+            ModelDownloadProgress {
+                downloaded_bytes,
+                total_bytes,
+                percentage: 1.0,
+                status: "finished".into(),
+                error: None,
+            },
+        );
+    }
 
     Ok(())
 }
