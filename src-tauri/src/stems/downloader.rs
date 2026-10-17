@@ -30,7 +30,18 @@ pub fn detect_execution_provider() -> String {
     let threads = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4);
-    format!("CPU (Multi-Threaded AVX2 / {threads} Threads)")
+    #[cfg(windows)]
+    {
+        format!("DirectML / CPU Fallback (AVX2 • {threads} Threads)")
+    }
+    #[cfg(target_os = "macos")]
+    {
+        format!("CoreML / CPU Fallback (Apple Neural Engine)")
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        format!("CPU (Multi-Threaded AVX2 • {threads} Threads)")
+    }
 }
 
 /// Checks whether the model exists on disk and is ready for inference.
