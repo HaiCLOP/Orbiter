@@ -8,6 +8,7 @@ import {
   FileDown,
   ChevronDown,
   Info,
+  Sparkles,
 } from 'lucide-react';
 import { useTrackStore } from '../store/trackStore';
 import { useWorkspaceStore, type WorkspaceTab } from '../store/workspaceStore';
@@ -72,13 +73,21 @@ export const TopNav: React.FC = () => {
     <nav className="h-11 glass-panel border-x-0 border-t-0 border-b border-white/[0.08] px-4 flex items-center justify-between text-xs select-none relative z-40">
       {/* Left: App Identity, Project Name & File Menu */}
       <div className="flex items-center space-x-3">
-        <div className="flex items-center space-x-2">
-          <div className="w-5 h-5 rounded-md glass-card flex items-center justify-center text-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.35)]">
+        <div
+          onClick={() => setAboutModalOpen(true)}
+          className="flex items-center space-x-2 cursor-pointer group"
+          title="About Orbiter & HaiCLOP Labs"
+        >
+          <div className="w-5 h-5 rounded-md glass-card flex items-center justify-center text-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.35)] group-hover:scale-105 transition-transform">
             <Disc className="w-3.5 h-3.5" />
           </div>
           <div className="flex items-baseline space-x-1.5">
-            <span className="text-zinc-100 font-bold text-[13px] tracking-tight">Orbiter</span>
-            <span className="text-[10px] font-medium text-sky-400/90 tracking-wide">by HaiCLOP Labs</span>
+            <span className="text-zinc-100 font-bold text-[13px] tracking-tight group-hover:text-white transition-colors">
+              Orbiter
+            </span>
+            <span className="text-[10px] font-semibold text-sky-300 tracking-wide px-1.5 py-0.2 rounded bg-sky-500/20 border border-sky-400/30 group-hover:bg-sky-500/30 transition-colors">
+              HaiCLOP Labs
+            </span>
           </div>
           <span className="glass-pill text-[9px] text-zinc-400 px-1.5 py-0.2 rounded font-mono font-medium border border-white/10">
             8D Spatial
@@ -240,8 +249,17 @@ export const TopNav: React.FC = () => {
         })}
       </div>
 
-      {/* Right: Audio Device & Open Action */}
+      {/* Right: HaiCLOP Labs About, Audio Device & Open Action */}
       <div className="flex items-center space-x-2.5">
+        <button
+          onClick={() => setAboutModalOpen(true)}
+          className="flex items-center space-x-1 px-2.5 py-1 rounded-md bg-gradient-to-r from-sky-500/15 to-purple-500/15 hover:from-sky-500/25 hover:to-purple-500/25 border border-sky-400/30 text-sky-300 text-[11px] font-semibold transition-all cursor-pointer shadow-xs active:scale-95"
+          title="About Orbiter & HaiCLOP Labs"
+        >
+          <Sparkles className="w-3.5 h-3.5 text-sky-400" />
+          <span>HaiCLOP Labs</span>
+        </button>
+
         <AudioDeviceSelector />
 
         <button

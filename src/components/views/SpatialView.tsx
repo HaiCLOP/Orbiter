@@ -62,6 +62,12 @@ export const SpatialView: React.FC = () => {
               <FolderOpen className="w-3.5 h-3.5 text-zinc-400" />
               <span>Select Audio File</span>
             </div>
+            <div className="mt-4 flex items-center space-x-2 text-[10px] text-zinc-500 font-mono">
+              <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
+              <span>Orbiter by HaiCLOP Labs</span>
+              <span>•</span>
+              <span>Architect: Arnav Srivastava</span>
+            </div>
           </div>
         ) : (
           <WaveformPreview />

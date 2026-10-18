@@ -17,7 +17,10 @@ mod single_instance {
                 return true;
             }
             if GetLastError() == ERROR_ALREADY_EXISTS {
-                let hwnd: HWND = FindWindowW(None, w!("Orbiter — 8D Spatial Audio Editor"));
+                let mut hwnd: HWND = FindWindowW(None, w!("Orbiter — 8D Spatial Audio Editor by HaiCLOP Labs"));
+                if hwnd.0 == 0 {
+                    hwnd = FindWindowW(None, w!("Orbiter — 8D Spatial Audio Editor"));
+                }
                 if hwnd.0 != 0 {
                     let _ = ShowWindow(hwnd, SW_RESTORE);
                     let _ = SetForegroundWindow(hwnd);
