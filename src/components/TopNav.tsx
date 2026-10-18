@@ -7,6 +7,7 @@ import {
   FilePlus,
   FileDown,
   ChevronDown,
+  Info,
 } from 'lucide-react';
 import { useTrackStore } from '../store/trackStore';
 import { useWorkspaceStore, type WorkspaceTab } from '../store/workspaceStore';
@@ -15,7 +16,7 @@ import { AudioDeviceSelector } from './AudioDeviceSelector';
 
 export const TopNav: React.FC = () => {
   const { openAndLoadTrack, isLoading } = useTrackStore();
-  const { activeTab, setActiveTab } = useWorkspaceStore();
+  const { activeTab, setActiveTab, setAboutModalOpen } = useWorkspaceStore();
   const { currentFilePath, isDirty, isSaving, saveProject, openProject, newProject } =
     useProjectStore();
 
@@ -72,11 +73,14 @@ export const TopNav: React.FC = () => {
       {/* Left: App Identity, Project Name & File Menu */}
       <div className="flex items-center space-x-3">
         <div className="flex items-center space-x-2">
-          <div className="w-5 h-5 rounded-md glass-card flex items-center justify-center text-zinc-300">
+          <div className="w-5 h-5 rounded-md glass-card flex items-center justify-center text-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.35)]">
             <Disc className="w-3.5 h-3.5" />
           </div>
-          <span className="text-zinc-100 font-semibold text-[13px] tracking-tight">Orbiter</span>
-          <span className="glass-pill text-[9px] text-zinc-400 px-1.5 py-0.2 rounded font-mono font-medium">
+          <div className="flex items-baseline space-x-1.5">
+            <span className="text-zinc-100 font-bold text-[13px] tracking-tight">Orbiter</span>
+            <span className="text-[10px] font-medium text-sky-400/90 tracking-wide">by HaiCLOP Labs</span>
+          </div>
+          <span className="glass-pill text-[9px] text-zinc-400 px-1.5 py-0.2 rounded font-mono font-medium border border-white/10">
             8D Spatial
           </span>
         </div>
@@ -195,6 +199,21 @@ export const TopNav: React.FC = () => {
                   <span>Export Master Audio...</span>
                 </div>
                 <span className="text-[10px] text-sky-400/50 font-mono">Ctrl+E</span>
+              </button>
+
+              <div className="my-1 border-t border-white/[0.08]" />
+
+              <button
+                onClick={() => {
+                  setFileMenuOpen(false);
+                  setAboutModalOpen(true);
+                }}
+                className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-white/10 transition-colors cursor-pointer text-zinc-300 hover:text-white"
+              >
+                <div className="flex items-center gap-2">
+                  <Info className="w-3.5 h-3.5 text-sky-400" />
+                  <span>About Orbiter & HaiCLOP Labs...</span>
+                </div>
               </button>
             </div>
           )}

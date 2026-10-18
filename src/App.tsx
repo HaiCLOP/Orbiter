@@ -16,6 +16,7 @@ import { AlertTriangle, X } from 'lucide-react';
 import { isTauri } from '@tauri-apps/api/core';
 import type { PlaybackTick } from './types/audio';
 import { AudioRelinkModal } from './components/AudioRelinkModal';
+import { AboutModal } from './components/AboutModal';
 
 export const App: React.FC = () => {
   const { error, clearError, updateTick } = useTrackStore();
@@ -88,6 +89,9 @@ export const App: React.FC = () => {
 
       {/* Non-destructive Missing Audio Relink Modal */}
       <AudioRelinkModal />
+
+      {/* HaiCLOP Labs About & System Information Modal */}
+      <AboutModal />
     </div>
   );
 };

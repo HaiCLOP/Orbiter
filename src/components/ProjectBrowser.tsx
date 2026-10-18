@@ -1,8 +1,10 @@
-import { Folder, Music2, Sliders, ChevronRight, ChevronDown } from 'lucide-react';
+import { Folder, Music2, Sliders, ChevronRight, ChevronDown, Info } from 'lucide-react';
 import { useTrackStore } from '../store/trackStore';
+import { useWorkspaceStore } from '../store/workspaceStore';
 
 export const ProjectBrowser: React.FC = () => {
   const { track } = useTrackStore();
+  const { setAboutModalOpen } = useWorkspaceStore();
 
   return (
     <aside className="w-52 glass-panel border-y-0 border-l-0 border-r border-white/[0.08] flex flex-col text-xs text-zinc-300 select-none overflow-hidden relative">
@@ -91,6 +93,18 @@ export const ProjectBrowser: React.FC = () => {
             <span className="font-medium text-zinc-200">4-Band Cascaded EQ</span>
           </div>
         </div>
+      </div>
+
+      {/* HaiCLOP Labs Attribution & About Link */}
+      <div className="px-3 py-2 border-t border-white/[0.06] flex items-center justify-between text-[10px] text-zinc-500 font-medium">
+        <span className="text-zinc-400 font-semibold tracking-wide">HaiCLOP Labs</span>
+        <button
+          onClick={() => setAboutModalOpen(true)}
+          className="flex items-center space-x-1 text-sky-400/90 hover:text-sky-300 transition-colors cursor-pointer"
+        >
+          <Info className="w-2.5 h-2.5" />
+          <span>About</span>
+        </button>
       </div>
     </aside>
   );

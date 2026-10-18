@@ -206,6 +206,9 @@ export const RenderView: React.FC = () => {
                 <ShieldCheck className="w-3 h-3 text-emerald-400" />
                 Bit-Exact DSP Parity
               </span>
+              <span className="glass-pill px-2 py-0.5 rounded text-[10px] text-sky-400 border border-sky-500/30 font-mono">
+                HaiCLOP Render Core
+              </span>
             </div>
             <p className="text-xs text-white/50">
               Zero-drift offline rendering evaluated per-sample through the unified SpatialDspChain.

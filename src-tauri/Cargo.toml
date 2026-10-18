@@ -1,8 +1,8 @@
 [package]
 name = "orbiter"
 version = "0.1.0"
-description = "Orbiter - 8D Spatial Audio Editor"
-authors = ["Orbiter Contributors"]
+description = "Orbiter - 8D Spatial Audio Editor by HaiCLOP Labs"
+authors = ["Arnav Srivastava <haiclop6@gmail.com> (HaiCLOP Labs)"]
 edition = "2024"
 rust-version = "1.90"
 

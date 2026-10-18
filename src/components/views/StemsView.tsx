@@ -227,6 +227,9 @@ export const StemsView: React.FC = () => {
                 <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-mono font-normal border border-purple-500/30">
                   HT-Demucs FP16
                 </span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 font-mono font-normal border border-sky-500/30">
+                  HaiCLOP Neural Audio
+                </span>
               </h1>
               <p className="text-xs text-slate-400 mt-0.5">
                 Decompose mix into Vocals, Drums, Bass, and Other with 25% overlap-add reconstruction.

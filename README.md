@@ -6,7 +6,8 @@
 
 <p align="center">
   <strong>High-Precision 8D & 3D Spatial Audio Digital Audio Workstation</strong><br />
-  <em>Real-time binaural spatialization, physical FDN reverberation, Bézier automation, and neural stem separation.</em>
+  <em>Real-time binaural spatialization, physical FDN reverberation, Bézier automation, and neural stem separation.</em><br />
+  <strong>Developed by <a href="https://github.com/HaiCLOP">HaiCLOP Labs</a> • Lead Architect: Arnav Srivastava (<a href="mailto:haiclop6@gmail.com">haiclop6@gmail.com</a>)</strong>
 </p>
 
 <p align="center">
@@ -166,18 +167,27 @@ npm run tauri build
 
 ## 🧪 Automated Testing Suite
 
-Orbiter includes **38 native automated unit tests** verifying filter stability, brickwall limiter overshoot clamping, FDN matrix orthogonality, Bézier LUT monotonic continuity, Demucs overlap-add click-free reconstruction, and bit-exact live/offline parity:
+Orbiter includes **42 native automated unit tests** verifying filter stability, brickwall limiter overshoot clamping, FDN matrix orthogonality, Bézier LUT monotonic continuity, Demucs overlap-add click-free reconstruction, bit-exact live/offline parity, and multi-track mixing engine synchronization:
 
 ```bash
 cd src-tauri
 cargo test --all
 ```
 
-All 38 tests pass with 0 failures:
+All 42 tests pass with 0 failures:
 - `test_live_and_offline_dsp_parity_with_automation`: Bit-exact identity between live audio playback and offline rendering under active timeline automation.
 - `test_demucs_overlap_add_reconstruction_click_free`: Verifies $25\%$ overlap-add linear crossfade has $<10^{-5}$ seam error and zero audible clicks.
+- `test_multi_track_mixdown_exact_math`: Verifies bit-exact synchronized mixing of multi-track buffers with zero phase drift.
+- `test_multi_track_solo_mute_logic`: Verifies standard DAW solo-in-place and mute logic across concurrent channels.
 - `test_brickwall_limiter_clamps_overshoots`: Guarantees zero sample overshoots above ceiling.
 - `test_fdn_matrix_orthogonality`: Verifies energy conservation in the $8 \times 8$ Hadamard matrix.
+
+---
+
+## 👨‍💻 Authors & Organization
+
+- **Lead Architect & Creator**: **Arnav Srivastava** ([@haiclop6](mailto:haiclop6@gmail.com))
+- **Research & Development**: **[HaiCLOP Labs](https://github.com/HaiCLOP)**
 
 ---
 

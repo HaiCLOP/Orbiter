@@ -1,7 +1,9 @@
 {
   "name": "orbiter",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "Orbiter — 8D Spatial Audio Digital Audio Workstation by HaiCLOP Labs",
+  "author": "Arnav Srivastava <haiclop6@gmail.com> (HaiCLOP Labs)",
   "type": "module",
   "scripts": {
     "dev": "vite",
