@@ -5,6 +5,15 @@ description = "Orbiter - 8D Spatial Audio Editor by HaiCLOP Labs"
 authors = ["Arnav Srivastava <haiclop6@gmail.com> (HaiCLOP Labs)"]
 edition = "2024"
 rust-version = "1.90"
+default-run = "orbiter"
+
+[[bin]]
+name = "orbiter"
+path = "src/main.rs"
+
+[[bin]]
+name = "run_demucs_real_track"
+path = "src/bin/run_demucs_real_track.rs"
 
 [lib]
 name = "orbiter_lib"
